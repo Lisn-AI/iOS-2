@@ -12,15 +12,15 @@ struct ContentView: View {
                 // Recording Status
                 VStack(spacing: 12) {
                     Circle()
-                        .fill(isRecording ? Color.red : Color.gray)
+                        .fill(recordingManager.isPausedForCall ? Color.orange : (isRecording ? Color.red : Color.gray))
                         .frame(width: 80, height: 80)
                         .overlay(
-                            Image(systemName: isRecording ? "mic.fill" : "mic.slash.fill")
+                            Image(systemName: recordingManager.isPausedForCall ? "phone.fill" : (isRecording ? "mic.fill" : "mic.slash.fill"))
                                 .font(.system(size: 35))
                                 .foregroundColor(.white)
                         )
 
-                    Text(isRecording ? "Recording..." : "Not Recording")
+                    Text(recordingManager.isPausedForCall ? "Paused for Call" : (isRecording ? "Recording..." : "Not Recording"))
                         .font(.title2)
                         .fontWeight(.semibold)
 
@@ -28,6 +28,12 @@ struct ContentView: View {
                         Text(recordingManager.recordingDuration)
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+
+                        if recordingManager.isPausedForCall {
+                            Text("Will resume when call ends")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
                     }
                 }
                 .padding(.top, 60)

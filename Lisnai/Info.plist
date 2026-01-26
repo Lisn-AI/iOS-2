@@ -28,9 +28,12 @@
 	<string>Lisnai records audio throughout your day to create a searchable memory of your life. Your recordings stay private on your device.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Lisnai transcribes your recordings on-device to make them searchable. Your data never leaves your device.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>fetch</string>
 		<string>location</string>
 		<string>processing</string>
 		<string>remote-notification</string>

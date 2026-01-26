@@ -20,6 +20,22 @@ packages:
     url: https://github.com/FluidInference/FluidAudio.git
     from: 0.7.9
 
+schemes:
+  Lisnai:
+    build:
+      targets:
+        Lisnai: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
 targets:
   Lisnai:
     type: application
@@ -33,6 +49,7 @@ targets:
 
     dependencies:
       - package: FluidAudio
+      - target: RecordingActivityExtension
 
     settings:
       base:
@@ -63,9 +80,13 @@ targets:
         NSLocationAlwaysAndWhenInUseUsageDescription: "Lisnai uses your location to automatically remind you to start recording when you leave your home zone."
         NSSpeechRecognitionUsageDescription: "Lisnai transcribes your recordings on-device to make them searchable. Your data never leaves your device."
 
+        # Live Activities support (for Dynamic Island)
+        NSSupportsLiveActivities: true
+
         # Background modes
         UIBackgroundModes:
           - audio
+          - fetch
           - location
           - processing
           - remote-notification
@@ -85,18 +106,30 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
 
-    schemes:
-      Lisnai:
-        build:
-          targets:
-            Lisnai: all
-        run:
-          config: Debug
-        test:
-          config: Debug
-        profile:
-          config: Release
-        analyze:
-          config: Debug
-        archive:
-          config: Release
+  # Live Activity Widget Extension
+  RecordingActivityExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+
+    sources:
+      - path: RecordingActivityExtension
+      # Include shared files from main app
+      - path: Lisnai/RecordingActivityAttributes.swift
+      - path: Lisnai/ResumeRecordingIntent.swift
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lisnai.Lisnai.RecordingActivity
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_STRICT_CONCURRENCY: complete
+        SKIP_INSTALL: YES
+        # Required for widget extensions
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+
+    info:
+      path: RecordingActivityExtension/Info.plist
+      properties:
+        CFBundleDisplayName: RecordingActivity
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
