@@ -4,6 +4,7 @@ import Speech
 import UIKit
 import CallKit
 import ActivityKit
+import SwiftData
 
 @MainActor
 class RecordingManager: NSObject, ObservableObject {
@@ -14,9 +15,13 @@ class RecordingManager: NSObject, ObservableObject {
     @Published var summary = ""
     @Published var isProcessing = false
 
+    /// ModelContext for saving to SwiftData (set from the view)
+    var modelContext: ModelContext?
+
     private var audioRecorder: AVAudioRecorder?
     private var recordingSession: AVAudioSession?
     private var recordingStartTime: Date?
+    private var recordingDate: Date?  // The date when recording started
     private var durationTimer: Timer?
     private var isAudioSessionSetup = false
     private var lastRecordingURL: URL?
@@ -355,6 +360,9 @@ class RecordingManager: NSObject, ObservableObject {
         recordingSegments = []
         currentSegmentIndex = 0
 
+        // Capture the recording start date
+        recordingDate = Date()
+
         // Start the first segment
         startNewRecordingSegment()
 
@@ -531,6 +539,10 @@ class RecordingManager: NSObject, ObservableObject {
         transcription = "Transcribing and identifying speakers..."
         summary = ""
 
+        // Calculate duration from elapsed time
+        let totalDuration = elapsedTimeBeforePause
+        let date = recordingDate ?? Date()
+
         do {
             let labeledTranscript: String
 
@@ -567,13 +579,25 @@ class RecordingManager: NSObject, ObservableObject {
             transcription = labeledTranscript
 
             // Step 4: Summarize with speaker context
+            var summaryText = ""
             if !labeledTranscript.isEmpty {
                 print("Starting summarization...")
-                let summaryText = try await summarizationService.summarize(labeledTranscript)
+                summaryText = try await summarizationService.summarize(labeledTranscript)
                 summary = summaryText
 
                 print("Summary complete!")
             }
+
+            // Step 5: Save to SwiftData
+            await saveToSwiftData(
+                date: date,
+                duration: totalDuration,
+                transcriptionText: labeledTranscript,
+                summaryText: summaryText
+            )
+
+            // Step 6: Delete the audio file (we don't need it anymore)
+            deleteAudioFile(at: fileURL)
 
         } catch {
             print("Processing error: \(error.localizedDescription)")
@@ -582,6 +606,47 @@ class RecordingManager: NSObject, ObservableObject {
         }
 
         isProcessing = false
+    }
+
+    /// Save recording data to SwiftData
+    private func saveToSwiftData(date: Date, duration: TimeInterval, transcriptionText: String, summaryText: String) async {
+        guard let context = modelContext else {
+            print("SwiftData: No model context available, skipping save")
+            return
+        }
+
+        // Create Recording
+        let recording = Recording(date: date, duration: duration)
+
+        // Create Transcription
+        let transcriptionModel = Transcription(date: date, text: transcriptionText, recording: recording)
+        recording.transcription = transcriptionModel
+
+        // Create Summary (if not empty)
+        if !summaryText.isEmpty {
+            let summaryModel = Summary(date: date, text: summaryText, recording: recording)
+            recording.summary = summaryModel
+        }
+
+        // Insert into context
+        context.insert(recording)
+
+        do {
+            try context.save()
+            print("SwiftData: Recording saved successfully")
+        } catch {
+            print("SwiftData: Failed to save - \(error.localizedDescription)")
+        }
+    }
+
+    /// Delete the audio file after processing
+    private func deleteAudioFile(at url: URL) {
+        do {
+            try FileManager.default.removeItem(at: url)
+            print("Audio file deleted: \(url.lastPathComponent)")
+        } catch {
+            print("Failed to delete audio file: \(error.localizedDescription)")
+        }
     }
 
     /// Format Deepgram segments into labeled transcript
