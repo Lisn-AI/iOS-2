@@ -578,15 +578,18 @@ class RecordingManager: NSObject, ObservableObject {
 
             transcription = labeledTranscript
 
-            // Step 4: Summarize with speaker context
+            // Step 4: Summarize with speaker context (disabled - requires iOS 26)
+            // Apple Intelligence summarization is not available on iOS < 26
+            // For now, we skip summarization and rely on backend processing
             var summaryText = ""
-            if !labeledTranscript.isEmpty {
-                print("Starting summarization...")
-                summaryText = try await summarizationService.summarize(labeledTranscript)
-                summary = summaryText
-
-                print("Summary complete!")
-            }
+            // Summarization disabled - requires iOS 26 (Apple Intelligence)
+            // if !labeledTranscript.isEmpty {
+            //     print("Starting summarization...")
+            //     summaryText = try await summarizationService.summarize(labeledTranscript)
+            //     summary = summaryText
+            //     print("Summary complete!")
+            // }
+            print("Summarization skipped (requires iOS 26)")
 
             // Step 5: Save to SwiftData
             await saveToSwiftData(
@@ -608,7 +611,7 @@ class RecordingManager: NSObject, ObservableObject {
         isProcessing = false
     }
 
-    /// Save recording data to SwiftData
+    /// Save recording data to SwiftData and send to backend
     private func saveToSwiftData(date: Date, duration: TimeInterval, transcriptionText: String, summaryText: String) async {
         guard let context = modelContext else {
             print("SwiftData: No model context available, skipping save")
@@ -637,6 +640,83 @@ class RecordingManager: NSObject, ObservableObject {
         } catch {
             print("SwiftData: Failed to save - \(error.localizedDescription)")
         }
+
+        // Send transcript to backend for AI processing
+        // This runs in parallel with local save - non-blocking
+        await sendTranscriptToBackend(transcriptionText)
+    }
+
+    /// Send transcript to the backend for AI processing
+    /// Handles entity extraction, memory storage, intent classification, and action execution
+    private func sendTranscriptToBackend(_ transcript: String) async {
+        guard !transcript.isEmpty else {
+            print("Backend: Skipping empty transcript")
+            return
+        }
+
+        print("Backend: Sending transcript for processing...")
+
+        do {
+            let result = try await APIService.shared.processTranscript(transcript)
+
+            print("Backend: Processing complete")
+            print("  - Memory ID: \(result.memoryId)")
+            print("  - Intent: \(result.intent.intent) (\(result.intent.confidence))")
+
+            // Handle action results
+            if let actionResult = result.actionResult {
+                await handleActionResult(actionResult)
+            }
+
+            // If there's a chat response from the AI, we could show it
+            // This happens when the intent is 'query' or 'action'
+            if let chatResponse = result.chatResponse {
+                print("Backend: AI Response - \(chatResponse)")
+                // Could trigger a local notification or update UI
+                await showAIResponse(chatResponse)
+            }
+
+        } catch {
+            print("Backend: Failed to process transcript - \(error.localizedDescription)")
+            // Non-critical error - local data is already saved
+            // Could queue for retry when network is available
+        }
+    }
+
+    /// Handle action result from backend processing
+    private func handleActionResult(_ actionResult: ActionResult) async {
+        if actionResult.permissionRequired {
+            // Permission is needed - send a local notification
+            print("Backend: Permission required for action")
+            if let permissionId = actionResult.pendingPermissionId,
+               let message = actionResult.permissionMessage {
+                await requestPermissionNotification(permissionId: permissionId, message: message)
+            }
+        } else if actionResult.executed, let toolResult = actionResult.toolResult {
+            // Action was executed successfully
+            print("Backend: Action executed - \(toolResult.message)")
+
+            // If there's an iOS deep link, we could open it
+            if let deepLink = toolResult.iosDeepLink {
+                print("Backend: iOS action available - \(deepLink)")
+                // Store for later execution via ActionsView
+            }
+        } else if let error = actionResult.error {
+            print("Backend: Action failed - \(error)")
+        }
+    }
+
+    /// Show AI response (e.g., as a local notification or update chat)
+    private func showAIResponse(_ response: String) async {
+        // For now, just log it
+        // Could integrate with NotificationService to show as local notification
+        print("AI Response: \(response)")
+    }
+
+    /// Request permission via local notification
+    private func requestPermissionNotification(permissionId: String, message: String) async {
+        // Will be implemented with NotificationService
+        print("Permission Request: \(message) (ID: \(permissionId))")
     }
 
     /// Delete the audio file after processing
