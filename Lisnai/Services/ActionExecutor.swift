@@ -1,0 +1,615 @@
+import Foundation
+import EventKit
+import UIKit
+import MessageUI
+
+/// Executes iOS native actions like creating reminders, calendar events, and email drafts
+/// Uses EventKit for Reminders and Calendar, MFMailComposeViewController for email
+@MainActor
+class ActionExecutor: ObservableObject {
+    static let shared = ActionExecutor()
+
+    @Published var hasReminderAccess = false
+    @Published var hasCalendarAccess = false
+    @Published var canSendEmail = false
+    @Published var error: String?
+    @Published var pendingEmailAction: PendingAction?
+
+    private let eventStore = EKEventStore()
+    private let api = APIService.shared
+
+    init() {
+        checkPermissions()
+    }
+
+    // MARK: - Permission Handling
+
+    /// Check current EventKit permissions and email capability
+    func checkPermissions() {
+        // Reminders permission
+        let reminderStatus = EKEventStore.authorizationStatus(for: .reminder)
+        hasReminderAccess = reminderStatus == .fullAccess || reminderStatus == .authorized
+
+        // Calendar permission
+        let calendarStatus = EKEventStore.authorizationStatus(for: .event)
+        hasCalendarAccess = calendarStatus == .fullAccess || calendarStatus == .authorized
+
+        // Email capability (check if device can send email)
+        canSendEmail = MFMailComposeViewController.canSendMail()
+    }
+
+    /// Request reminder access
+    func requestReminderAccess() async -> Bool {
+        do {
+            if #available(iOS 17.0, *) {
+                let granted = try await eventStore.requestFullAccessToReminders()
+                hasReminderAccess = granted
+                return granted
+            } else {
+                let granted = try await eventStore.requestAccess(to: .reminder)
+                hasReminderAccess = granted
+                return granted
+            }
+        } catch {
+            self.error = "Failed to request reminder access: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Request calendar access
+    func requestCalendarAccess() async -> Bool {
+        do {
+            if #available(iOS 17.0, *) {
+                let granted = try await eventStore.requestFullAccessToEvents()
+                hasCalendarAccess = granted
+                return granted
+            } else {
+                let granted = try await eventStore.requestAccess(to: .event)
+                hasCalendarAccess = granted
+                return granted
+            }
+        } catch {
+            self.error = "Failed to request calendar access: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    // MARK: - Execute Actions
+
+    /// Execute an action based on its type
+    func executeAction(_ action: PendingAction) async -> ActionExecutionResult {
+        // Get tool type from params if available
+        let tool = action.params["tool"]?.stringValue?.lowercased() ?? action.type.lowercased()
+        let skill = action.params["skill"]?.stringValue?.lowercased() ?? ""
+
+        switch (skill, tool) {
+        case (_, "reminder"), ("apple-reminders", _):
+            return await createReminder(from: action)
+        case (_, "calendar"), ("apple-calendar", _):
+            return await createCalendarEvent(from: action)
+        case ("email-draft", _), ("messaging", "send_email"), (_, "email"):
+            return await prepareEmailDraft(from: action)
+        case ("messaging", "send_message"):
+            return await prepareMessage(from: action)
+        default:
+            // Try to infer from action type
+            switch action.type.lowercased() {
+            case "reminder":
+                return await createReminder(from: action)
+            case "calendar":
+                return await createCalendarEvent(from: action)
+            case "email":
+                return await prepareEmailDraft(from: action)
+            case "message":
+                return await prepareMessage(from: action)
+            default:
+                return ActionExecutionResult(
+                    success: false,
+                    message: "Unknown action type: \(action.type)",
+                    nativeItemId: nil
+                )
+            }
+        }
+    }
+
+    // MARK: - Reminders
+
+    /// Create a reminder from a pending action
+    func createReminder(from action: PendingAction) async -> ActionExecutionResult {
+        // Check/request permission
+        var hasAccess = hasReminderAccess
+        if !hasAccess {
+            hasAccess = await requestReminderAccess()
+        }
+        guard hasAccess else {
+            return ActionExecutionResult(
+                success: false,
+                message: "Reminder access not granted",
+                nativeItemId: nil
+            )
+        }
+
+        // Extract parameters
+        guard let title = action.params["title"]?.stringValue else {
+            return ActionExecutionResult(
+                success: false,
+                message: "Missing reminder title",
+                nativeItemId: nil
+            )
+        }
+
+        // Create reminder
+        let reminder = EKReminder(eventStore: eventStore)
+        reminder.title = title
+        reminder.calendar = eventStore.defaultCalendarForNewReminders()
+
+        // Set due date if provided (try both dueDateTime and dueDate)
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        var dueDate: Date?
+        if let dueDateString = action.params["dueDateTime"]?.stringValue {
+            dueDate = dateFormatter.date(from: dueDateString)
+            if dueDate == nil {
+                // Try without fractional seconds
+                dateFormatter.formatOptions = [.withInternetDateTime]
+                dueDate = dateFormatter.date(from: dueDateString)
+            }
+        }
+        if dueDate == nil, let dueDateString = action.params["dueDate"]?.stringValue {
+            dueDate = dateFormatter.date(from: dueDateString)
+            if dueDate == nil {
+                dateFormatter.formatOptions = [.withInternetDateTime]
+                dueDate = dateFormatter.date(from: dueDateString)
+            }
+        }
+
+        if let dueDate = dueDate {
+            reminder.dueDateComponents = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: dueDate
+            )
+
+            // Add alarm
+            let alarm = EKAlarm(absoluteDate: dueDate)
+            reminder.addAlarm(alarm)
+        }
+
+        // Set priority if provided
+        if let priorityString = action.params["priority"]?.stringValue {
+            switch priorityString.lowercased() {
+            case "high": reminder.priority = 1
+            case "medium": reminder.priority = 5
+            case "low": reminder.priority = 9
+            default: break
+            }
+        }
+
+        // Set notes if provided
+        var notes = action.params["notes"]?.stringValue ?? ""
+
+        // Add person info to notes if available
+        if let person = action.params["person"]?.stringValue {
+            if !notes.isEmpty {
+                notes += "\n\n"
+            }
+            notes += "Related to: \(person)"
+        }
+
+        if !notes.isEmpty {
+            reminder.notes = notes
+        }
+
+        // Handle recurrence if specified
+        if let recurrence = action.params["recurrence"]?.stringValue {
+            let recurrenceRule: EKRecurrenceRule?
+            switch recurrence.lowercased() {
+            case "daily":
+                recurrenceRule = EKRecurrenceRule(
+                    recurrenceWith: .daily,
+                    interval: 1,
+                    end: nil
+                )
+            case "weekly":
+                recurrenceRule = EKRecurrenceRule(
+                    recurrenceWith: .weekly,
+                    interval: 1,
+                    end: nil
+                )
+            case "monthly":
+                recurrenceRule = EKRecurrenceRule(
+                    recurrenceWith: .monthly,
+                    interval: 1,
+                    end: nil
+                )
+            case "yearly":
+                recurrenceRule = EKRecurrenceRule(
+                    recurrenceWith: .yearly,
+                    interval: 1,
+                    end: nil
+                )
+            default:
+                recurrenceRule = nil
+            }
+
+            if let rule = recurrenceRule {
+                reminder.recurrenceRules = [rule]
+            }
+        }
+
+        // Save reminder
+        do {
+            try eventStore.save(reminder, commit: true)
+
+            // Mark action as completed on backend
+            await completeActionOnBackend(action)
+
+            return ActionExecutionResult(
+                success: true,
+                message: "Reminder '\(title)' created",
+                nativeItemId: reminder.calendarItemIdentifier
+            )
+        } catch {
+            return ActionExecutionResult(
+                success: false,
+                message: "Failed to create reminder: \(error.localizedDescription)",
+                nativeItemId: nil
+            )
+        }
+    }
+
+    // MARK: - Calendar Events
+
+    /// Create a calendar event from a pending action
+    func createCalendarEvent(from action: PendingAction) async -> ActionExecutionResult {
+        // Check/request permission
+        var hasAccess = hasCalendarAccess
+        if !hasAccess {
+            hasAccess = await requestCalendarAccess()
+        }
+        guard hasAccess else {
+            return ActionExecutionResult(
+                success: false,
+                message: "Calendar access not granted",
+                nativeItemId: nil
+            )
+        }
+
+        // Extract parameters
+        guard let title = action.params["title"]?.stringValue else {
+            return ActionExecutionResult(
+                success: false,
+                message: "Missing event title",
+                nativeItemId: nil
+            )
+        }
+
+        guard let startTimeString = action.params["startTime"]?.stringValue,
+              let startDate = ISO8601DateFormatter().date(from: startTimeString) else {
+            return ActionExecutionResult(
+                success: false,
+                message: "Missing or invalid start time",
+                nativeItemId: nil
+            )
+        }
+
+        // Create event
+        let event = EKEvent(eventStore: eventStore)
+        event.title = title
+        event.startDate = startDate
+        event.calendar = eventStore.defaultCalendarForNewEvents
+
+        // Set end date
+        if let endTimeString = action.params["endTime"]?.stringValue,
+           let endDate = ISO8601DateFormatter().date(from: endTimeString) {
+            event.endDate = endDate
+        } else if let durationMinutes = action.params["duration"]?.intValue {
+            event.endDate = startDate.addingTimeInterval(TimeInterval(durationMinutes * 60))
+        } else {
+            // Default 1 hour duration
+            event.endDate = startDate.addingTimeInterval(3600)
+        }
+
+        // Set location if provided
+        if let location = action.params["location"]?.stringValue {
+            event.location = location
+        }
+
+        // Set notes if provided
+        if let notes = action.params["notes"]?.stringValue {
+            event.notes = notes
+        }
+
+        // Add default alarm (15 minutes before)
+        let alarm = EKAlarm(relativeOffset: -900)
+        event.addAlarm(alarm)
+
+        // Save event
+        do {
+            try eventStore.save(event, span: .thisEvent)
+
+            // Mark action as completed on backend
+            await completeActionOnBackend(action)
+
+            return ActionExecutionResult(
+                success: true,
+                message: "Event '\(title)' created",
+                nativeItemId: event.eventIdentifier
+            )
+        } catch {
+            return ActionExecutionResult(
+                success: false,
+                message: "Failed to create event: \(error.localizedDescription)",
+                nativeItemId: nil
+            )
+        }
+    }
+
+    // MARK: - Email Drafts
+
+    /// Prepare an email draft - stores action and returns instructions to show mail composer
+    func prepareEmailDraft(from action: PendingAction) async -> ActionExecutionResult {
+        guard canSendEmail else {
+            return ActionExecutionResult(
+                success: false,
+                message: "Email is not configured on this device. Please set up an email account in Settings.",
+                nativeItemId: nil
+            )
+        }
+
+        // Check if email address is missing
+        if action.params["needsEmail"]?.boolValue == true ||
+           action.params["needsEmail"]?.stringValue == "true" {
+            // Store the action for later completion with email address
+            self.pendingEmailAction = action
+            return ActionExecutionResult(
+                success: true,
+                message: "Email address needed for \(action.params["recipientName"]?.stringValue ?? "recipient")",
+                nativeItemId: nil,
+                requiresUserInput: .emailAddress
+            )
+        }
+
+        // Get recipients
+        var recipients: [String] = []
+        if let toArray = action.params["to"]?.value as? [Any] {
+            recipients = toArray.compactMap { ($0 as? String) ?? (($0 as? AnyCodable)?.stringValue) }
+        } else if let toEmail = action.params["to"]?.stringValue {
+            recipients = [toEmail]
+        }
+
+        guard !recipients.isEmpty else {
+            return ActionExecutionResult(
+                success: false,
+                message: "No email recipient specified",
+                nativeItemId: nil
+            )
+        }
+
+        // Store the email details for the mail composer
+        self.pendingEmailAction = action
+
+        // Return success - the UI will show the mail composer
+        return ActionExecutionResult(
+            success: true,
+            message: "Email draft ready - opening mail composer",
+            nativeItemId: action.id,
+            requiresUserInput: .mailComposer
+        )
+    }
+
+    /// Get email draft details for showing mail composer
+    func getEmailDraftDetails(from action: PendingAction) -> EmailDraftDetails? {
+        var recipients: [String] = []
+        if let toArray = action.params["to"]?.value as? [Any] {
+            recipients = toArray.compactMap { ($0 as? String) ?? (($0 as? AnyCodable)?.stringValue) }
+        } else if let toEmail = action.params["to"]?.stringValue {
+            recipients = [toEmail]
+        }
+
+        let subject = action.params["subject"]?.stringValue ?? ""
+        let body = action.params["body"]?.stringValue ?? ""
+
+        var ccRecipients: [String] = []
+        if let ccArray = action.params["cc"]?.value as? [Any] {
+            ccRecipients = ccArray.compactMap { ($0 as? String) ?? (($0 as? AnyCodable)?.stringValue) }
+        }
+
+        return EmailDraftDetails(
+            recipients: recipients,
+            ccRecipients: ccRecipients,
+            subject: subject,
+            body: body
+        )
+    }
+
+    /// Complete email action after mail composer is dismissed
+    func completeEmailAction(_ action: PendingAction, sent: Bool) async {
+        if sent {
+            await completeActionOnBackend(action)
+        } else {
+            // User cancelled - mark as cancelled on backend
+            do {
+                let result = ActionCompletionResult(
+                    status: "cancelled",
+                    result: "User cancelled email",
+                    error: nil
+                )
+                _ = try await api.completeAction(actionId: action.id, result: result)
+            } catch {
+                print("Failed to mark email action as cancelled: \(error)")
+            }
+        }
+        self.pendingEmailAction = nil
+    }
+
+    /// Add email address to pending action and execute
+    func addEmailAndExecute(_ email: String) async -> ActionExecutionResult {
+        guard let action = pendingEmailAction else {
+            return ActionExecutionResult(
+                success: false,
+                message: "No pending email action",
+                nativeItemId: nil
+            )
+        }
+
+        // Create updated action with email
+        var updatedParams = action.params
+        updatedParams["to"] = AnyCodable([email])
+        updatedParams["needsEmail"] = AnyCodable(false)
+
+        let updatedAction = PendingAction(
+            id: action.id,
+            type: action.type,
+            params: updatedParams,
+            status: action.status,
+            createdAt: action.createdAt
+        )
+
+        self.pendingEmailAction = updatedAction
+        return ActionExecutionResult(
+            success: true,
+            message: "Email address added - ready to compose",
+            nativeItemId: action.id,
+            requiresUserInput: .mailComposer
+        )
+    }
+
+    // MARK: - Messages
+
+    /// Prepare a message - opens Messages app with pre-filled content
+    func prepareMessage(from action: PendingAction) async -> ActionExecutionResult {
+        guard let recipient = action.params["recipient"]?.stringValue else {
+            return ActionExecutionResult(
+                success: false,
+                message: "No message recipient specified",
+                nativeItemId: nil
+            )
+        }
+
+        let content = action.params["content"]?.stringValue ?? ""
+
+        // Create SMS URL
+        var urlString = "sms:\(recipient)"
+        if !content.isEmpty {
+            if let encodedContent = content.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                urlString += "&body=\(encodedContent)"
+            }
+        }
+
+        guard let url = URL(string: urlString) else {
+            return ActionExecutionResult(
+                success: false,
+                message: "Could not create message URL",
+                nativeItemId: nil
+            )
+        }
+
+        // Open Messages app
+        await UIApplication.shared.open(url)
+        await completeActionOnBackend(action)
+
+        return ActionExecutionResult(
+            success: true,
+            message: "Opening Messages to \(recipient)",
+            nativeItemId: nil
+        )
+    }
+
+    // MARK: - Deep Link Handling
+
+    /// Handle a deep link from the backend
+    /// Format: lisnai://action/{type}/{actionId}
+    func handleDeepLink(_ url: URL) async -> ActionExecutionResult? {
+        guard url.scheme == "lisnai",
+              url.host == "action",
+              url.pathComponents.count >= 3 else {
+            return nil
+        }
+
+        let actionType = url.pathComponents[1]
+        let actionId = url.pathComponents[2]
+
+        // Fetch action details from backend
+        do {
+            let response = try await api.getPendingActions()
+            guard let action = response.actions.first(where: { $0.id == actionId }) else {
+                return ActionExecutionResult(
+                    success: false,
+                    message: "Action not found: \(actionId)",
+                    nativeItemId: nil
+                )
+            }
+
+            return await executeAction(action)
+        } catch {
+            return ActionExecutionResult(
+                success: false,
+                message: "Failed to fetch action: \(error.localizedDescription)",
+                nativeItemId: nil
+            )
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func completeActionOnBackend(_ action: PendingAction) async {
+        do {
+            let result = ActionCompletionResult(
+                status: "completed",
+                result: "Created via iOS EventKit",
+                error: nil
+            )
+            _ = try await api.completeAction(actionId: action.id, result: result)
+        } catch {
+            print("Failed to mark action as completed: \(error.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - Result Types
+
+/// What kind of user input is required
+enum UserInputRequired {
+    case none
+    case emailAddress      // Need to ask for email address
+    case mailComposer      // Need to show mail composer
+    case phoneNumber       // Need to ask for phone number
+}
+
+struct ActionExecutionResult {
+    let success: Bool
+    let message: String
+    let nativeItemId: String?
+    var requiresUserInput: UserInputRequired = .none
+
+    init(success: Bool, message: String, nativeItemId: String?, requiresUserInput: UserInputRequired = .none) {
+        self.success = success
+        self.message = message
+        self.nativeItemId = nativeItemId
+        self.requiresUserInput = requiresUserInput
+    }
+}
+
+/// Details for email draft composition
+struct EmailDraftDetails {
+    let recipients: [String]
+    let ccRecipients: [String]
+    let subject: String
+    let body: String
+}
+
+// MARK: - Deep Link Registration
+
+extension ActionExecutor {
+    /// Register URL scheme handler in SceneDelegate or App
+    static func registerURLHandler() {
+        // This would be called from the App's onOpenURL modifier
+        // Example usage in LisnaiApp.swift:
+        // .onOpenURL { url in
+        //     Task {
+        //         await ActionExecutor.shared.handleDeepLink(url)
+        //     }
+        // }
+    }
+}

@@ -5,5 +5,6 @@ import SwiftUI
 struct RecordingActivityBundle: WidgetBundle {
     var body: some Widget {
         RecordingActivityLiveActivity()
+        TaskActivityLiveActivity()
     }
 }

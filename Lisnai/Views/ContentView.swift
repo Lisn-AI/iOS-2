@@ -9,13 +9,18 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if authService.isLoggedIn {
+            if !authService.isAuthReady {
+                // Show loading while determining auth state
+                ProgressView("Loading...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if authService.isLoggedIn {
                 MainTabView()
             } else {
                 LoginView()
             }
         }
         .animation(.easeInOut, value: authService.isLoggedIn)
+        .animation(.easeInOut, value: authService.isAuthReady)
     }
 }
 

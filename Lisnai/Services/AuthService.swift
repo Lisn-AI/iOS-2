@@ -12,6 +12,7 @@ class AuthService: NSObject, ObservableObject {
     @Published var user: User?
     @Published var isLoading = false
     @Published var error: String?
+    @Published var isAuthReady = false  // True once we know the auth state
 
     var isLoggedIn: Bool {
         user != nil
@@ -20,17 +21,39 @@ class AuthService: NSObject, ObservableObject {
     // For Apple Sign In
     private var currentNonce: String?
     private var appleSignInCompletion: ((Result<User, Error>) -> Void)?
+    private var authStateHandle: AuthStateDidChangeListenerHandle?
 
     override init() {
         super.init()
-        // Check if user is already logged in
-        checkAuthState()
+        // Listen for auth state changes
+        setupAuthStateListener()
+    }
+
+    deinit {
+        if let handle = authStateHandle {
+            Auth.auth().removeStateDidChangeListener(handle)
+        }
     }
 
     // MARK: - Auth State
 
+    private func setupAuthStateListener() {
+        authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            Task { @MainActor in
+                self?.user = user
+                self?.isAuthReady = true
+                if let user = user {
+                    print("Auth state changed: signed in as \(user.email ?? "unknown")")
+                } else {
+                    print("Auth state changed: signed out")
+                }
+            }
+        }
+    }
+
     func checkAuthState() {
         user = Auth.auth().currentUser
+        isAuthReady = true
     }
 
     // MARK: - Google Sign In

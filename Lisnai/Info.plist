@@ -24,17 +24,31 @@
 				<string>com.googleusercontent.apps.303903781890-0rfihh50t3a80kf9vemig983pife9trh</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>lisnai</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>26.0</string>
+	<string>17.0</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Lisnai creates calendar events from your conversations to help you stay organized.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Lisnai creates calendar events from your conversations to help you stay organized.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Lisnai uses your location to automatically remind you to start recording when you leave your home zone.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Lisnai uses your location to remind you to start recording when you leave home.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Lisnai records audio throughout your day to create a searchable memory of your life. Your recordings stay private on your device.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Lisnai creates reminders from your conversations so you don't forget important tasks.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Lisnai creates reminders from your conversations so you don't forget important tasks.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Lisnai transcribes your recordings on-device to make them searchable. Your data never leaves your device.</string>
 	<key>NSSupportsLiveActivities</key>

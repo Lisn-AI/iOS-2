@@ -3,7 +3,7 @@ options:
   bundleIdPrefix: com.lisnai
   createIntermediateGroups: true
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "17.0"
   groupSortPosition: top
   generateEmptyDirectories: true
 
@@ -12,8 +12,8 @@ settings:
     DEVELOPMENT_TEAM: "JCG5A6HQ2P"
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: 1
-    SWIFT_VERSION: "6.0"
-    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
 
 packages:
   FluidAudio:
@@ -37,6 +37,10 @@ schemes:
         Lisnai: all
     run:
       config: Debug
+      environmentVariables:
+        CG_NUMERICS_SHOW_BACKTRACE:
+          value: "1"
+          isEnabled: true
     test:
       config: Debug
     profile:
@@ -50,7 +54,7 @@ targets:
   Lisnai:
     type: application
     platform: iOS
-    deploymentTarget: "26.0"
+    deploymentTarget: "17.0"
 
     sources:
       - path: Lisnai
@@ -65,11 +69,15 @@ targets:
         product: FirebaseAuth
       - package: firebase-ios-sdk
         product: FirebaseFirestore
+      - package: firebase-ios-sdk
+        product: FirebaseMessaging
       # Google Sign In
       - package: GoogleSignIn-iOS
         product: GoogleSignIn
       - package: GoogleSignIn-iOS
         product: GoogleSignInSwift
+      # EventKit (system framework for Reminders/Calendar)
+      - sdk: EventKit.framework
 
     settings:
       base:
@@ -114,12 +122,20 @@ targets:
           - remote-notification
 
         # Minimum iOS version
-        LSMinimumSystemVersion: "26.0"
+        LSMinimumSystemVersion: "17.0"
 
-        # URL Schemes for Google Sign In
+        # URL Schemes for Google Sign In and deep links
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - "com.googleusercontent.apps.303903781890-0rfihh50t3a80kf9vemig983pife9trh"
+          - CFBundleURLSchemes:
+              - "lisnai"
+
+        # Calendar and Reminders usage descriptions
+        NSCalendarsUsageDescription: "Lisnai creates calendar events from your conversations to help you stay organized."
+        NSCalendarsFullAccessUsageDescription: "Lisnai creates calendar events from your conversations to help you stay organized."
+        NSRemindersUsageDescription: "Lisnai creates reminders from your conversations so you don't forget important tasks."
+        NSRemindersFullAccessUsageDescription: "Lisnai creates reminders from your conversations so you don't forget important tasks."
 
         # Supported interface orientations
         UISupportedInterfaceOrientations:
@@ -144,6 +160,7 @@ targets:
       # Include shared files from main app
       - path: Lisnai/RecordingActivityAttributes.swift
       - path: Lisnai/ResumeRecordingIntent.swift
+      - path: Lisnai/TaskActivityAttributes.swift
 
     settings:
       base:

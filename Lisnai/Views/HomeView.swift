@@ -8,53 +8,164 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var isRecording = false
     @State private var showPermissionAlert = false
+    @State private var showMemorySearch = false
+    @State private var showTodayBriefing = false
+    @State private var pendingActionsCount = 0
+    @State private var pendingSuggestionsCount = 0
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Status Card
-                statusCard
-                    .padding()
+        VStack(spacing: 0) {
+            // Quick Actions Row
+            quickActionsRow
+                .padding(.horizontal)
+                .padding(.top, 8)
 
-                Spacer()
+            // Status Card
+            statusCard
+                .padding()
 
-                // Recording Button
-                recordingButton
-                    .padding(.bottom, 40)
+            Spacer()
 
-                // Processing Status
-                if recordingManager.isProcessing {
-                    processingView
-                        .padding(.horizontal)
-                        .padding(.bottom, 20)
-                }
+            // Recording Button
+            recordingButton
+                .padding(.bottom, 40)
 
-                // Recent Result Preview
-                if !recordingManager.summary.isEmpty && !recordingManager.isProcessing {
-                    recentResultPreview
-                        .padding(.horizontal)
-                        .padding(.bottom, 20)
-                }
-
-                Spacer()
+            // Processing Status
+            if recordingManager.isProcessing {
+                processingView
+                    .padding(.horizontal)
+                    .padding(.bottom, 20)
             }
-            .navigationTitle("Lisnai")
-            .navigationBarTitleDisplayMode(.large)
-            .alert("Microphone Permission Required", isPresented: $showPermissionAlert) {
-                Button("Open Settings") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
-                    }
+
+            // Recent Result Preview
+            if !recordingManager.summary.isEmpty && !recordingManager.isProcessing {
+                recentResultPreview
+                    .padding(.horizontal)
+                    .padding(.bottom, 20)
+            }
+
+            Spacer()
+
+            // Bottom Stats
+            bottomStats
+                .padding(.horizontal)
+                .padding(.bottom, 16)
+        }
+        .alert("Microphone Permission Required", isPresented: $showPermissionAlert) {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
                 }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Please enable microphone access in Settings to record audio.")
             }
-            .onAppear {
-                locationManager.requestPermissions()
-                // Pass modelContext to RecordingManager for SwiftData persistence
-                recordingManager.modelContext = modelContext
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Please enable microphone access in Settings to record audio.")
+        }
+        .sheet(isPresented: $showMemorySearch) {
+            MemorySearchView()
+        }
+        .sheet(isPresented: $showTodayBriefing) {
+            BriefingsView()
+        }
+        .onAppear {
+            locationManager.requestPermissions()
+            // Pass modelContext to RecordingManager for SwiftData persistence
+            recordingManager.modelContext = modelContext
+        }
+        .task {
+            await loadPendingCounts()
+        }
+    }
+
+    // MARK: - Quick Actions Row
+
+    private var quickActionsRow: some View {
+        HStack(spacing: 12) {
+            // Search Button
+            Button(action: { showMemorySearch = true }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                    Text("Search")
+                }
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(.blue)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.blue.opacity(0.1))
+                .cornerRadius(20)
             }
+
+            // Today's Briefing Button
+            Button(action: { showTodayBriefing = true }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sun.haze")
+                    Text("Briefing")
+                }
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(.orange)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(20)
+            }
+
+            Spacer()
+
+            // Pending Actions Badge
+            if pendingActionsCount > 0 || pendingSuggestionsCount > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "bolt.fill")
+                        .font(.caption)
+                    Text("\(pendingActionsCount + pendingSuggestionsCount)")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.red)
+                .cornerRadius(12)
+            }
+        }
+    }
+
+    // MARK: - Bottom Stats
+
+    private var bottomStats: some View {
+        HStack(spacing: 20) {
+            if pendingActionsCount > 0 {
+                Label("\(pendingActionsCount) actions", systemImage: "bolt.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if pendingSuggestionsCount > 0 {
+                Label("\(pendingSuggestionsCount) suggestions", systemImage: "lightbulb.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if pendingActionsCount == 0 && pendingSuggestionsCount == 0 {
+                Label("All caught up!", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(.green)
+            }
+        }
+    }
+
+    private func loadPendingCounts() async {
+        do {
+            async let actionsTask = APIService.shared.getPendingActions()
+            async let suggestionsTask = APIService.shared.getSuggestions(status: "pending")
+
+            let (actionsResponse, suggestionsResponse) = try await (actionsTask, suggestionsTask)
+            pendingActionsCount = actionsResponse.actions.count
+            pendingSuggestionsCount = suggestionsResponse.suggestions.count
+        } catch {
+            // Silently fail - not critical
+            print("Failed to load pending counts: \(error)")
         }
     }
 
