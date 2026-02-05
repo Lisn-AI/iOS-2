@@ -76,39 +76,99 @@ class ActionExecutor: ObservableObject {
 
     // MARK: - Execute Actions
 
+    /// Execute a suggested action directly (from accepted suggestions)
+    func executeSuggestedAction(_ suggestedAction: SuggestedAction, suggestionId: String) async -> ActionExecutionResult {
+        // Convert SuggestedAction to PendingAction format for unified execution
+        let pendingAction = PendingAction(
+            id: suggestionId,
+            type: suggestedAction.tool,
+            params: suggestedAction.params.merging([
+                "skill": AnyCodable(suggestedAction.skill),
+                "tool": AnyCodable(suggestedAction.tool)
+            ]) { _, new in new },
+            status: "pending",
+            createdAt: ISO8601DateFormatter().string(from: Date())
+        )
+
+        return await executeAction(pendingAction)
+    }
+
+    /// Execute an action from an approved permission
+    func executePermissionAction(_ permission: PendingPermission) async -> ActionExecutionResult {
+        print("[ActionExecutor] Executing permission action: \(permission.skill):\(permission.tool)")
+        print("[ActionExecutor] Permission params: \(String(describing: permission.params))")
+
+        // Convert PendingPermission to PendingAction format
+        let params: [String: AnyCodable] = (permission.params ?? [:]).merging([
+            "skill": AnyCodable(permission.skill),
+            "tool": AnyCodable(permission.tool)
+        ]) { _, new in new }
+
+        let pendingAction = PendingAction(
+            id: permission.id,
+            type: permission.tool,
+            params: params,
+            status: "approved",
+            createdAt: permission.createdAt
+        )
+
+        return await executeAction(pendingAction)
+    }
+
     /// Execute an action based on its type
     func executeAction(_ action: PendingAction) async -> ActionExecutionResult {
         // Get tool type from params if available
         let tool = action.params["tool"]?.stringValue?.lowercased() ?? action.type.lowercased()
         let skill = action.params["skill"]?.stringValue?.lowercased() ?? ""
 
-        switch (skill, tool) {
-        case (_, "reminder"), ("apple-reminders", _):
+        // First check skill-based routing
+        switch skill {
+        case "apple-reminders":
             return await createReminder(from: action)
-        case (_, "calendar"), ("apple-calendar", _):
+        case "apple-calendar":
             return await createCalendarEvent(from: action)
-        case ("email-draft", _), ("messaging", "send_email"), (_, "email"):
+        case "email-draft", "email":
             return await prepareEmailDraft(from: action)
-        case ("messaging", "send_message"):
+        case "messaging":
+            if tool == "send_email" {
+                return await prepareEmailDraft(from: action)
+            } else {
+                return await prepareMessage(from: action)
+            }
+        default:
+            break
+        }
+
+        // Then check tool-based routing
+        switch tool {
+        case "reminder", "create_reminder", "add_reminder", "set_reminder":
+            return await createReminder(from: action)
+        case "calendar", "create_event", "add_event", "schedule_event", "create_calendar_event":
+            return await createCalendarEvent(from: action)
+        case "email", "send_email", "compose_email", "draft_email":
+            return await prepareEmailDraft(from: action)
+        case "message", "send_message", "sms", "text":
             return await prepareMessage(from: action)
         default:
-            // Try to infer from action type
-            switch action.type.lowercased() {
-            case "reminder":
-                return await createReminder(from: action)
-            case "calendar":
-                return await createCalendarEvent(from: action)
-            case "email":
-                return await prepareEmailDraft(from: action)
-            case "message":
-                return await prepareMessage(from: action)
-            default:
-                return ActionExecutionResult(
-                    success: false,
-                    message: "Unknown action type: \(action.type)",
-                    nativeItemId: nil
-                )
-            }
+            break
+        }
+
+        // Finally try to infer from action type
+        switch action.type.lowercased() {
+        case "reminder", "task_reminder", "call_reminder":
+            return await createReminder(from: action)
+        case "calendar", "event", "event_reminder":
+            return await createCalendarEvent(from: action)
+        case "email", "follow_up":
+            return await prepareEmailDraft(from: action)
+        case "message":
+            return await prepareMessage(from: action)
+        default:
+            return ActionExecutionResult(
+                success: false,
+                message: "Unknown action type: \(action.type) (skill: \(skill), tool: \(tool))",
+                nativeItemId: nil
+            )
         }
     }
 
@@ -116,27 +176,41 @@ class ActionExecutor: ObservableObject {
 
     /// Create a reminder from a pending action
     func createReminder(from action: PendingAction) async -> ActionExecutionResult {
+        print("[ActionExecutor] Creating reminder from action: \(action.id)")
+        print("[ActionExecutor] Params: \(action.params)")
+
         // Check/request permission
         var hasAccess = hasReminderAccess
         if !hasAccess {
+            print("[ActionExecutor] Requesting reminder access...")
             hasAccess = await requestReminderAccess()
         }
         guard hasAccess else {
+            print("[ActionExecutor] Reminder access denied")
             return ActionExecutionResult(
                 success: false,
-                message: "Reminder access not granted",
+                message: "Reminder access not granted. Please enable in Settings.",
                 nativeItemId: nil
             )
         }
+        print("[ActionExecutor] Reminder access granted")
 
-        // Extract parameters
-        guard let title = action.params["title"]?.stringValue else {
+        // Extract parameters - try multiple possible keys
+        let title = action.params["title"]?.stringValue
+            ?? action.params["reminderTitle"]?.stringValue
+            ?? action.params["text"]?.stringValue
+            ?? action.params["name"]?.stringValue
+            ?? action.params["content"]?.stringValue
+
+        guard let title = title, !title.isEmpty else {
+            print("[ActionExecutor] Missing reminder title. Available params: \(action.params.keys)")
             return ActionExecutionResult(
                 success: false,
                 message: "Missing reminder title",
                 nativeItemId: nil
             )
         }
+        print("[ActionExecutor] Creating reminder with title: \(title)")
 
         // Create reminder
         let reminder = EKReminder(eventStore: eventStore)
@@ -262,21 +336,33 @@ class ActionExecutor: ObservableObject {
 
     /// Create a calendar event from a pending action
     func createCalendarEvent(from action: PendingAction) async -> ActionExecutionResult {
+        print("[ActionExecutor] Creating calendar event from action: \(action.id)")
+        print("[ActionExecutor] Params: \(action.params)")
+
         // Check/request permission
         var hasAccess = hasCalendarAccess
         if !hasAccess {
+            print("[ActionExecutor] Requesting calendar access...")
             hasAccess = await requestCalendarAccess()
         }
         guard hasAccess else {
+            print("[ActionExecutor] Calendar access denied")
             return ActionExecutionResult(
                 success: false,
-                message: "Calendar access not granted",
+                message: "Calendar access not granted. Please enable in Settings.",
                 nativeItemId: nil
             )
         }
+        print("[ActionExecutor] Calendar access granted")
 
-        // Extract parameters
-        guard let title = action.params["title"]?.stringValue else {
+        // Extract title - try multiple possible keys
+        let title = action.params["title"]?.stringValue
+            ?? action.params["eventTitle"]?.stringValue
+            ?? action.params["name"]?.stringValue
+            ?? action.params["summary"]?.stringValue
+
+        guard let title = title, !title.isEmpty else {
+            print("[ActionExecutor] Missing event title. Available params: \(action.params.keys)")
             return ActionExecutionResult(
                 success: false,
                 message: "Missing event title",
@@ -284,14 +370,40 @@ class ActionExecutor: ObservableObject {
             )
         }
 
-        guard let startTimeString = action.params["startTime"]?.stringValue,
-              let startDate = ISO8601DateFormatter().date(from: startTimeString) else {
+        // Extract start time - try multiple possible keys
+        let startTimeString = action.params["startTime"]?.stringValue
+            ?? action.params["start"]?.stringValue
+            ?? action.params["startDate"]?.stringValue
+            ?? action.params["dateTime"]?.stringValue
+            ?? action.params["date"]?.stringValue
+
+        // Parse the start date
+        var startDate: Date?
+        if let startTimeString = startTimeString {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            startDate = formatter.date(from: startTimeString)
+            if startDate == nil {
+                formatter.formatOptions = [.withInternetDateTime]
+                startDate = formatter.date(from: startTimeString)
+            }
+        }
+
+        // If no start time, default to 1 hour from now
+        if startDate == nil {
+            startDate = Date().addingTimeInterval(3600)
+            print("[ActionExecutor] No start time provided, defaulting to 1 hour from now")
+        }
+
+        guard let startDate = startDate else {
+            print("[ActionExecutor] Failed to parse start time")
             return ActionExecutionResult(
                 success: false,
                 message: "Missing or invalid start time",
                 nativeItemId: nil
             )
         }
+        print("[ActionExecutor] Creating event '\(title)' at \(startDate)")
 
         // Create event
         let event = EKEvent(eventStore: eventStore)

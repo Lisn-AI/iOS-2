@@ -5,6 +5,8 @@ struct SuggestionsView: View {
     @StateObject private var viewModel = SuggestionsViewModel()
     @State private var selectedSuggestion: ProactiveSuggestion?
     @State private var showDetailSheet = false
+    @State private var showSuccessAlert = false
+    @State private var successMessage = ""
 
     var body: some View {
         NavigationStack {
@@ -38,9 +40,15 @@ struct SuggestionsView: View {
                         suggestion: suggestion,
                         onAccept: {
                             Task {
-                                await viewModel.acceptSuggestion(suggestion)
+                                let result = await viewModel.acceptSuggestion(suggestion)
                                 showDetailSheet = false
                                 selectedSuggestion = nil
+
+                                // Show success feedback if action was executed
+                                if let result = result, result.success && result.requiresUserInput == .none {
+                                    successMessage = result.message
+                                    showSuccessAlert = true
+                                }
                             }
                         },
                         onDismiss: {
@@ -57,6 +65,11 @@ struct SuggestionsView: View {
                 Button("OK") { }
             } message: {
                 Text(viewModel.errorMessage)
+            }
+            .alert("Success", isPresented: $showSuccessAlert) {
+                Button("OK") { }
+            } message: {
+                Text(successMessage)
             }
         }
     }
@@ -91,7 +104,13 @@ struct SuggestionsView: View {
                     }
                     .swipeActions(edge: .leading) {
                         Button {
-                            Task { await viewModel.acceptSuggestion(suggestion) }
+                            Task {
+                                let result = await viewModel.acceptSuggestion(suggestion)
+                                if let result = result, result.success && result.requiresUserInput == .none {
+                                    successMessage = result.message
+                                    showSuccessAlert = true
+                                }
+                            }
                         } label: {
                             Label("Accept", systemImage: "checkmark")
                         }
@@ -409,21 +428,36 @@ class SuggestionsViewModel: ObservableObject {
         isLoading = false
     }
 
-    func acceptSuggestion(_ suggestion: ProactiveSuggestion) async {
+    func acceptSuggestion(_ suggestion: ProactiveSuggestion) async -> ActionExecutionResult? {
         do {
             let response = try await api.acceptSuggestion(suggestionId: suggestion.id)
 
             // Remove from list
             suggestions.removeAll { $0.id == suggestion.id }
 
-            // If there's a suggested action, we could execute it here
+            // If there's a suggested action, execute it via ActionExecutor
             if let action = response.suggestedAction {
-                print("Accepted suggestion with action: \(action.skill) > \(action.tool)")
-                // Could trigger action execution here
+                print("[SuggestionsVM] Executing action: \(action.skill) > \(action.tool)")
+
+                let executor = ActionExecutor.shared
+                let result = await executor.executeSuggestedAction(action, suggestionId: suggestion.id)
+
+                if result.success {
+                    print("[SuggestionsVM] Action executed successfully: \(result.message)")
+                } else {
+                    print("[SuggestionsVM] Action failed: \(result.message)")
+                    errorMessage = result.message
+                    showError = true
+                }
+
+                return result
             }
+
+            return nil
         } catch {
             errorMessage = error.localizedDescription
             showError = true
+            return nil
         }
     }
 

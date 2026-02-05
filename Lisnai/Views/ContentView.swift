@@ -15,8 +15,19 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if authService.isLoggedIn {
                 MainTabView()
+                    .onAppear {
+                        // Start suggestion monitoring when user is logged in
+                        SuggestionMonitor.shared.startMonitoring()
+                    }
+                    .onDisappear {
+                        SuggestionMonitor.shared.stopMonitoring()
+                    }
             } else {
                 LoginView()
+                    .onAppear {
+                        // Stop monitoring when logged out
+                        SuggestionMonitor.shared.stopMonitoring()
+                    }
             }
         }
         .animation(.easeInOut, value: authService.isLoggedIn)

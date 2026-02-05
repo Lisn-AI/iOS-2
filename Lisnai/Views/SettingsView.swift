@@ -341,8 +341,8 @@ struct PermissionRulesView: View {
             ForEach(viewModel.rules) { rule in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Image(systemName: rule.enabled ? "checkmark.circle.fill" : "circle")
-                            .foregroundColor(rule.enabled ? .green : .secondary)
+                        Image(systemName: (rule.enabled ?? true) ? "checkmark.circle.fill" : "circle")
+                            .foregroundColor((rule.enabled ?? true) ? .green : .secondary)
 
                         Text(rule.pattern)
                             .font(.headline)
