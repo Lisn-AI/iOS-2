@@ -612,8 +612,10 @@ struct PermissionRule: Codable, Identifiable {
     let matchMode: String
     let scope: String
     let description: String?
-    let enabled: Bool
-    let createdAt: String
+    let enabled: Bool?
+    let createdAt: String?
+    let userId: String?
+    let createdBy: String?
 }
 
 struct PendingPermissionsResponse: Codable {
@@ -624,20 +626,25 @@ struct PendingPermission: Codable, Identifiable {
     let id: String
     let skill: String
     let tool: String
-    let params: [String: AnyCodable]
+    let params: [String: AnyCodable]?
     let displayTitle: String
     let displayDescription: String
     let displayRisk: String?
     let expiresAt: String
     let status: String
     let createdAt: String
+    // Additional fields that backend might return
+    let userId: String?
+    let sessionId: String?
+    let transcript: String?
+    let grantedScope: String?
 }
 
 struct PermissionResolutionResponse: Codable {
     let success: Bool
-    let permissionId: String
-    let status: String
-    let ruleCreated: Bool?
+    let message: String?
+    let pendingPermission: PendingPermission?
+    let createdRule: PermissionRule?
 }
 
 struct ActionCompletionResponse: Codable {

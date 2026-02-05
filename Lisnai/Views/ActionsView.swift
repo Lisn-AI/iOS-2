@@ -5,13 +5,14 @@ import MessageUI
 struct ActionsView: View {
     @StateObject private var viewModel = ActionsViewModel()
     @State private var selectedPermission: PendingPermission?
-    @State private var showPermissionSheet = false
     @State private var showSuggestionsView = false
     @State private var showMailComposer = false
     @State private var showEmailInputSheet = false
     @State private var emailInputText = ""
     @State private var pendingEmailAction: PendingAction?
     @State private var emailDraftDetails: EmailDraftDetails?
+    @State private var showSuccessAlert = false
+    @State private var successMessage = ""
 
     var body: some View {
         NavigationStack {
@@ -39,26 +40,28 @@ struct ActionsView: View {
             .task {
                 await viewModel.loadData()
             }
-            .sheet(isPresented: $showPermissionSheet) {
-                if let permission = selectedPermission {
-                    PermissionApprovalSheet(
-                        permission: permission,
-                        onApprove: { scope, createRule in
-                            Task {
-                                await viewModel.approvePermission(permission, scope: scope, createRule: createRule)
-                                showPermissionSheet = false
-                                selectedPermission = nil
-                            }
-                        },
-                        onDeny: {
-                            Task {
-                                await viewModel.denyPermission(permission)
-                                showPermissionSheet = false
-                                selectedPermission = nil
+            .sheet(item: $selectedPermission) { permission in
+                PermissionApprovalSheet(
+                    permission: permission,
+                    onApprove: { scope, createRule in
+                        Task {
+                            let result = await viewModel.approvePermission(permission, scope: scope, createRule: createRule)
+                            selectedPermission = nil
+
+                            // Show success feedback if action was executed
+                            if let result = result, result.success {
+                                successMessage = result.message
+                                showSuccessAlert = true
                             }
                         }
-                    )
-                }
+                    },
+                    onDeny: {
+                        Task {
+                            await viewModel.denyPermission(permission)
+                            selectedPermission = nil
+                        }
+                    }
+                )
             }
             .sheet(isPresented: $showEmailInputSheet) {
                 EmailInputSheet(
@@ -100,6 +103,11 @@ struct ActionsView: View {
             } message: {
                 Text(viewModel.errorMessage)
             }
+            .alert("Success", isPresented: $showSuccessAlert) {
+                Button("OK") { }
+            } message: {
+                Text(successMessage)
+            }
         }
     }
 
@@ -118,7 +126,8 @@ struct ActionsView: View {
                 showMailComposer = true
             }
         } else if !result.success {
-            viewModel.error = result.message
+            viewModel.errorMessage = result.message
+            viewModel.showError = true
         }
 
         pendingEmailAction = nil
@@ -189,7 +198,6 @@ struct ActionsView: View {
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 selectedPermission = permission
-                                showPermissionSheet = true
                             }
                     }
                 } header: {
@@ -638,7 +646,7 @@ class ActionsViewModel: ObservableObject {
         isLoading = false
     }
 
-    func approvePermission(_ permission: PendingPermission, scope: PermissionScope, createRule: Bool) async {
+    func approvePermission(_ permission: PendingPermission, scope: PermissionScope, createRule: Bool) async -> ActionExecutionResult? {
         do {
             _ = try await api.approvePermission(
                 permissionId: permission.id,
@@ -649,12 +657,25 @@ class ActionsViewModel: ObservableObject {
             // Remove from list
             pendingPermissions.removeAll { $0.id == permission.id }
 
-            // Refresh to get any new actions
-            await refresh()
+            // IMPORTANT: After approval, actually execute the action!
+            // Convert permission to action and execute via ActionExecutor
+            let executor = ActionExecutor.shared
+            let result = await executor.executePermissionAction(permission)
+
+            if result.success {
+                print("[ActionsVM] Permission action executed successfully: \(result.message)")
+            } else {
+                print("[ActionsVM] Permission action failed: \(result.message)")
+                errorMessage = result.message
+                showError = true
+            }
+
+            return result
 
         } catch {
             errorMessage = error.localizedDescription
             showError = true
+            return nil
         }
     }
 

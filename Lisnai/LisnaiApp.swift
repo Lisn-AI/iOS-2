@@ -144,6 +144,7 @@ struct LisnaiApp: App {
     @StateObject private var locationManager = LocationManager()
     @StateObject private var authService = AuthService()
     @StateObject private var taskActivityManager = TaskActivityManager.shared
+    @StateObject private var suggestionMonitor = SuggestionMonitor.shared
 
     /// SwiftData model container for local persistence
     var sharedModelContainer: ModelContainer = {
