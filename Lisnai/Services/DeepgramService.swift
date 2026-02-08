@@ -62,7 +62,19 @@ class DeepgramService {
         }
     }
 
+    /// Content type for audio files based on extension
+    private func contentType(for fileURL: URL) -> String {
+        switch fileURL.pathExtension.lowercased() {
+        case "m4a": return "audio/m4a"
+        case "caf": return "audio/x-caf"
+        case "wav": return "audio/wav"
+        case "mp3": return "audio/mpeg"
+        default: return "audio/m4a"
+        }
+    }
+
     /// Perform transcription and speaker diarization using Deepgram
+    /// Includes retry logic for transient upload failures (408, 502, 503)
     /// - Parameter fileURL: URL to the audio file
     /// - Returns: Tuple of (full transcript, speaker segments)
     func transcribeAndDiarize(fileURL: URL) async throws -> (transcript: String, segments: [SpeakerSegment]) {
@@ -86,59 +98,103 @@ class DeepgramService {
             throw DeepgramError.invalidURL
         }
 
-        // Create request
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("audio/m4a", forHTTPHeaderField: "Content-Type")
-        request.httpBody = audioData
-        request.timeoutInterval = 120 // 2 minutes for long audio
+        let mimeType = contentType(for: fileURL)
+        print("Uploading \(audioData.count) bytes (\(mimeType)) to Deepgram...")
 
-        print("Uploading \(audioData.count) bytes to Deepgram...")
+        // URLSession with upload-optimized configuration
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 180   // 3 minutes for the request
+        config.timeoutIntervalForResource = 300  // 5 minutes total
+        let session = URLSession(configuration: config)
 
-        // Make API request
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // Retry logic for transient failures (408 SLOW_UPLOAD, 502, 503)
+        let maxRetries = 3
+        var lastError: Error?
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DeepgramError.invalidResponse
-        }
+        for attempt in 1...maxRetries {
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
+                request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+                request.httpBody = audioData
 
-        guard httpResponse.statusCode == 200 else {
-            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-            print("Deepgram API error (\(httpResponse.statusCode)): \(errorMessage)")
-            throw DeepgramError.apiError(statusCode: httpResponse.statusCode, message: errorMessage)
-        }
+                if attempt > 1 {
+                    print("Deepgram: Retry attempt \(attempt)/\(maxRetries)...")
+                }
 
-        // Parse response
-        let decoder = JSONDecoder()
-        let deepgramResponse = try decoder.decode(DeepgramResponse.self, from: data)
+                let (data, response) = try await session.data(for: request)
 
-        // Extract full transcript
-        let fullTranscript = deepgramResponse.results.channels.first?.alternatives.first?.transcript ?? ""
-        print("Transcription complete: \(fullTranscript.count) characters")
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw DeepgramError.invalidResponse
+                }
 
-        // Extract speaker segments from utterances
-        var segments: [SpeakerSegment] = []
+                // Retryable status codes
+                if [408, 502, 503, 504].contains(httpResponse.statusCode) {
+                    let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+                    print("Deepgram: Retryable error (\(httpResponse.statusCode)): \(errorMessage)")
+                    lastError = DeepgramError.apiError(statusCode: httpResponse.statusCode, message: errorMessage)
+                    if attempt < maxRetries {
+                        let delay = UInt64(attempt) * 2_000_000_000 // 2s, 4s exponential backoff
+                        try? await Task.sleep(nanoseconds: delay)
+                        continue
+                    }
+                    throw lastError!
+                }
 
-        if let utterances = deepgramResponse.results.utterances {
-            for utterance in utterances {
-                let segment = SpeakerSegment(
-                    speaker: utterance.speaker,
-                    startTime: utterance.start,
-                    endTime: utterance.end,
-                    transcript: utterance.transcript,
-                    confidence: utterance.confidence
-                )
-                segments.append(segment)
+                guard httpResponse.statusCode == 200 else {
+                    let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+                    print("Deepgram API error (\(httpResponse.statusCode)): \(errorMessage)")
+                    throw DeepgramError.apiError(statusCode: httpResponse.statusCode, message: errorMessage)
+                }
+
+                // Parse response
+                let decoder = JSONDecoder()
+                let deepgramResponse = try decoder.decode(DeepgramResponse.self, from: data)
+
+                // Extract full transcript
+                let fullTranscript = deepgramResponse.results.channels.first?.alternatives.first?.transcript ?? ""
+                print("Transcription complete: \(fullTranscript.count) characters")
+
+                // Extract speaker segments from utterances
+                var segments: [SpeakerSegment] = []
+
+                if let utterances = deepgramResponse.results.utterances {
+                    for utterance in utterances {
+                        let segment = SpeakerSegment(
+                            speaker: utterance.speaker,
+                            startTime: utterance.start,
+                            endTime: utterance.end,
+                            transcript: utterance.transcript,
+                            confidence: utterance.confidence
+                        )
+                        segments.append(segment)
+                    }
+
+                    let uniqueSpeakers = Set(segments.map(\.speaker)).count
+                    print("Diarization complete: \(segments.count) segments, \(uniqueSpeakers) speakers detected")
+                } else {
+                    print("Warning: No utterances found in response. Diarization may have failed.")
+                }
+
+                session.invalidateAndCancel()
+                return (fullTranscript, segments)
+
+            } catch let error as DeepgramError {
+                lastError = error
+                // Don't retry non-retryable DeepgramErrors (except the ones handled above)
+                if attempt == maxRetries { throw error }
+            } catch {
+                lastError = error
+                if attempt == maxRetries { throw error }
+                print("Deepgram: Network error on attempt \(attempt): \(error.localizedDescription)")
+                let delay = UInt64(attempt) * 2_000_000_000
+                try? await Task.sleep(nanoseconds: delay)
             }
-
-            let uniqueSpeakers = Set(segments.map(\.speaker)).count
-            print("Diarization complete: \(segments.count) segments, \(uniqueSpeakers) speakers detected")
-        } else {
-            print("Warning: No utterances found in response. Diarization may have failed.")
         }
 
-        return (fullTranscript, segments)
+        session.invalidateAndCancel()
+        throw lastError ?? DeepgramError.invalidResponse
     }
 }
 

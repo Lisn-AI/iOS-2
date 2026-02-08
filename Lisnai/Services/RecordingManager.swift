@@ -18,7 +18,11 @@ class RecordingManager: NSObject, ObservableObject {
     /// ModelContext for saving to SwiftData (set from the view)
     var modelContext: ModelContext?
 
-    private var audioRecorder: AVAudioRecorder?
+    // AVAudioEngine-based recording (supports background restart after interruptions)
+    private var audioEngine: AVAudioEngine?
+    private var currentAudioFile: AVAudioFile?
+    private let audioWriteQueue = DispatchQueue(label: "com.lisnai.audiowrite", qos: .userInitiated)
+
     private var recordingSession: AVAudioSession?
     private var recordingStartTime: Date?
     private var recordingDate: Date?  // The date when recording started
@@ -30,17 +34,16 @@ class RecordingManager: NSObject, ObservableObject {
     private var elapsedTimeBeforePause: TimeInterval = 0
 
     // Segment-based recording: store URLs of all recording segments
-    // After phone call interruption, we create a NEW file instead of trying to resume
+    // On interruption, we close the current file and open a new one on resume
     // All segments are merged at the end
     private var recordingSegments: [URL] = []
     private var currentSegmentIndex = 0
 
+    // Guard flag: prevents config change handler from restarting engine during active interruption
+    private var isSuspendedForInterruption = false
+
     // CallKit observer for detecting phone calls (more reliable than audio session interruption notifications)
     private let callObserver = CXCallObserver()
-
-    // Silent audio player to keep audio session alive in background
-    // This is a workaround to help with resuming recording after interruptions
-    private var silentAudioPlayer: AVAudioPlayer?
 
     // Live Activity for showing pause/resume UI in Dynamic Island
     private var recordingActivity: Activity<RecordingActivityAttributes>?
@@ -81,7 +84,7 @@ class RecordingManager: NSObject, ObservableObject {
         print("Live Activity resume observer set up")
     }
 
-    /// Handle resume request from Live Activity button tap
+    /// Handle resume request from Live Activity button tap (fallback manual resume)
     @objc private func handleLiveActivityResumeRequest() {
         print("Live Activity: Resume button tapped!")
 
@@ -90,10 +93,8 @@ class RecordingManager: NSObject, ObservableObject {
             return
         }
 
-        // End the Live Activity since we're resuming
-        endRecordingLiveActivity()
-
         // Request background execution time and attempt to resume
+        // The resume flow will update the Live Activity to show "resumed" feedback
         resumeRecordingAfterCall()
     }
 
@@ -111,6 +112,15 @@ class RecordingManager: NSObject, ObservableObject {
             object: nil
         )
 
+        // Engine configuration change (fires AFTER interruption when hardware config changes)
+        // Must handle both this AND interruptionNotification for robust recovery
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleEngineConfigurationChange),
+            name: NSNotification.Name.AVAudioEngineConfigurationChange,
+            object: nil
+        )
+
         // Fallback: App became active notification
         // This catches cases where interruptionTypeEnded notification is NOT fired (known iOS bug)
         NotificationCenter.default.addObserver(
@@ -120,35 +130,33 @@ class RecordingManager: NSObject, ObservableObject {
             object: nil
         )
 
-        print("Audio interruption and app lifecycle observers registered")
+        print("Audio interruption, engine config change, and app lifecycle observers registered")
+    }
+
+    /// Handle AVAudioEngine configuration change (e.g., sample rate or route change after interruption)
+    /// This can fire AFTER the interruption ended notification
+    @objc nonisolated private func handleEngineConfigurationChange(notification: Notification) {
+        Task { @MainActor in
+            // Only act if we're NOT in an active interruption and were recording
+            guard !isSuspendedForInterruption, isRecording, isPausedForCall else { return }
+            print("AVAudioEngine: Configuration changed, attempting resume")
+            autoResumeRecording()
+        }
     }
 
     /// Fallback handler when app becomes active
-    /// Used to resume recording if interruptionEnded notification was never received
+    /// Used to resume recording if interruptionEnded notification was never received (known iOS bug)
     @objc nonisolated private func handleAppBecameActive(notification: Notification) {
         Task { @MainActor in
             // Only try to resume if we're paused for a call
-            guard isRecording, isPausedForCall, let recorder = audioRecorder else {
+            guard isRecording, isPausedForCall else {
                 return
             }
 
-            print("App became active while recording was paused - attempting to resume")
+            print("App became active while recording was paused - attempting auto-resume")
 
-            // Try to reactivate audio session and resume recording
-            do {
-                try AVAudioSession.sharedInstance().setActive(true)
-            } catch {
-                print("Failed to reactivate audio session on app active: \(error.localizedDescription)")
-            }
-
-            if recorder.record() {
-                isPausedForCall = false
-                recordingStartTime = Date()
-                startDurationTimer()
-                print("Recording resumed via app active fallback")
-            } else {
-                print("Failed to resume recording on app active")
-            }
+            // Use the same auto-resume flow as call ended
+            autoResumeRecording()
         }
     }
 
@@ -186,7 +194,8 @@ class RecordingManager: NSObject, ObservableObject {
     }
 
     /// Called when an interruption begins (e.g., phone call received)
-    /// We STOP the current segment instead of pausing (segment-based approach)
+    /// With AVAudioEngine: system already stopped the engine — do NOT call engine.stop() or deactivate session
+    /// Just close the current audio file to finalize the segment
     private func handleInterruptionBegan() {
         print("AVAudioSession: Interruption BEGAN - isRecording: \(isRecording), isPausedForCall: \(isPausedForCall)")
 
@@ -209,24 +218,19 @@ class RecordingManager: NSObject, ObservableObject {
             elapsedTimeBeforePause += Date().timeIntervalSince(startTime)
         }
 
+        isSuspendedForInterruption = true
         isPausedForCall = true
         durationTimer?.invalidate()
         durationTimer = nil
 
-        // STOP the current segment (not pause) - segment-based approach
-        audioRecorder?.stop()
-        audioRecorder = nil
-        stopSilentAudioPlayback()
-
-        // CRITICAL: Deactivate audio session - yield to the interrupting app
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            print("AVAudioSession: Audio session DEACTIVATED")
-        } catch {
-            print("AVAudioSession: Failed to deactivate: \(error.localizedDescription)")
+        // Close current audio file to finalize this segment
+        // Do NOT stop the engine — system already stopped it
+        // Do NOT deactivate audio session — this prevents background restart
+        audioWriteQueue.sync {
+            self.currentAudioFile = nil
         }
 
-        print("AVAudioSession: Recording segment STOPPED due to interruption (segment \(currentSegmentIndex) saved)")
+        print("AVAudioSession: Audio file closed, segment \(currentSegmentIndex) saved (engine suspended by system)")
     }
 
     /// Called when an interruption ends (e.g., phone call ended)
@@ -238,9 +242,13 @@ class RecordingManager: NSObject, ObservableObject {
 
         print("AVAudioSession: Interruption ended (shouldResume hint: \(shouldResume))")
 
-        // Update Live Activity to show "Tap to Resume" button
-        // instead of immediately trying to resume (which fails in background)
-        handleCallEnded()
+        if shouldResume {
+            // Auto-resume recording (YapNote-style seamless experience)
+            autoResumeRecording()
+        } else {
+            // System says don't auto-resume — fall back to manual
+            handleCallEnded()
+        }
     }
 
     private func setupAudioSessionIfNeeded() throws {
@@ -273,66 +281,6 @@ class RecordingManager: NSObject, ObservableObject {
         print("Audio session setup complete with playAndRecord category")
     }
 
-    /// Creates and starts playing silent audio to keep audio session alive in background
-    /// This is a workaround to help with resuming recording after phone call interruptions
-    private func startSilentAudioPlayback() {
-        // Create silent audio data (1 second of silence at 44100 Hz, mono, 16-bit)
-        let sampleRate: Double = 44100
-        let duration: Double = 1.0
-        let numSamples = Int(sampleRate * duration)
-
-        // Create WAV header + silent samples
-        var wavData = Data()
-
-        // WAV Header
-        let fileSize = UInt32(44 + numSamples * 2 - 8)
-        let audioFormat: UInt16 = 1 // PCM
-        let numChannels: UInt16 = 1
-        let bitsPerSample: UInt16 = 16
-        let byteRate = UInt32(sampleRate) * UInt32(numChannels) * UInt32(bitsPerSample / 8)
-        let blockAlign = numChannels * (bitsPerSample / 8)
-        let dataSize = UInt32(numSamples * 2)
-
-        // RIFF header
-        wavData.append(contentsOf: "RIFF".utf8)
-        wavData.append(contentsOf: withUnsafeBytes(of: fileSize.littleEndian) { Array($0) })
-        wavData.append(contentsOf: "WAVE".utf8)
-
-        // fmt chunk
-        wavData.append(contentsOf: "fmt ".utf8)
-        wavData.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Array($0) })
-        wavData.append(contentsOf: withUnsafeBytes(of: audioFormat.littleEndian) { Array($0) })
-        wavData.append(contentsOf: withUnsafeBytes(of: numChannels.littleEndian) { Array($0) })
-        wavData.append(contentsOf: withUnsafeBytes(of: UInt32(sampleRate).littleEndian) { Array($0) })
-        wavData.append(contentsOf: withUnsafeBytes(of: byteRate.littleEndian) { Array($0) })
-        wavData.append(contentsOf: withUnsafeBytes(of: blockAlign.littleEndian) { Array($0) })
-        wavData.append(contentsOf: withUnsafeBytes(of: bitsPerSample.littleEndian) { Array($0) })
-
-        // data chunk
-        wavData.append(contentsOf: "data".utf8)
-        wavData.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
-
-        // Silent samples (all zeros)
-        wavData.append(Data(count: numSamples * 2))
-
-        do {
-            silentAudioPlayer = try AVAudioPlayer(data: wavData)
-            silentAudioPlayer?.numberOfLoops = -1 // Loop indefinitely
-            silentAudioPlayer?.volume = 0.0 // Completely silent
-            silentAudioPlayer?.play()
-            print("Silent audio playback started to keep audio session alive")
-        } catch {
-            print("Failed to start silent audio playback: \(error.localizedDescription)")
-        }
-    }
-
-    /// Stops silent audio playback
-    private func stopSilentAudioPlayback() {
-        silentAudioPlayer?.stop()
-        silentAudioPlayer = nil
-        print("Silent audio playback stopped")
-    }
-
     func requestMicrophonePermission() async -> Bool {
         if #available(iOS 17.0, *) {
             return await AVAudioApplication.requestRecordPermission()
@@ -357,71 +305,81 @@ class RecordingManager: NSObject, ObservableObject {
         // Reset pause tracking and segments for new recording session
         elapsedTimeBeforePause = 0
         isPausedForCall = false
+        isSuspendedForInterruption = false
         recordingSegments = []
         currentSegmentIndex = 0
 
         // Capture the recording start date
         recordingDate = Date()
 
-        // Start the first segment
-        startNewRecordingSegment()
+        do {
+            // Create engine (persists across interruptions — just restart, don't recreate)
+            let engine = AVAudioEngine()
+            self.audioEngine = engine
+
+            let inputNode = engine.inputNode
+            let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+            // Open first audio file for this segment
+            try openNewSegmentFile(format: recordingFormat)
+
+            // Install tap on input node — writes audio buffers to the current file
+            // The tap persists across engine stop/start cycles (interruptions)
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { [weak self] buffer, _ in
+                self?.audioWriteQueue.async {
+                    try? self?.currentAudioFile?.write(from: buffer)
+                }
+            }
+
+            try engine.start()
+
+            isRecording = true
+            recordingStartTime = Date()
+            startDurationTimer()
+
+            print("AVAudioEngine: Recording started with format \(recordingFormat)")
+        } catch {
+            print("AVAudioEngine: Failed to start recording: \(error.localizedDescription)")
+            return
+        }
 
         // Start Live Activity while app is in foreground (minimal UI during recording)
         // This MUST be done here so we can UPDATE it later when a call comes in
         startRecordingLiveActivity()
     }
 
-    /// Starts a new recording segment (either initial or after phone call interruption)
-    private func startNewRecordingSegment() {
+    /// Opens a new audio file for the next recording segment
+    /// Called at start and after each interruption resume
+    private func openNewSegmentFile(format: AVAudioFormat) throws {
         let timestamp = Date().timeIntervalSince1970
-        let audioFilename = getDocumentsDirectory().appendingPathComponent("recording_\(timestamp)_segment\(currentSegmentIndex).m4a")
+        let audioFilename = getDocumentsDirectory().appendingPathComponent("recording_\(timestamp)_segment\(currentSegmentIndex).caf")
 
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44100,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-        ]
+        let file = try AVAudioFile(forWriting: audioFilename, settings: format.settings)
 
-        do {
-            audioRecorder = try AVAudioRecorder(url: audioFilename, settings: settings)
-            audioRecorder?.delegate = self
-
-            // CRITICAL: prepareToRecord() creates the file and primes the audio system
-            audioRecorder?.prepareToRecord()
-            audioRecorder?.record()
-
-            // Track this segment
-            recordingSegments.append(audioFilename)
-            currentSegmentIndex += 1
-
-            // Start silent audio playback to keep audio session alive in background
-            startSilentAudioPlayback()
-
-            isRecording = true
-            if recordingStartTime == nil {
-                recordingStartTime = Date()
-            }
-            startDurationTimer()
-
-            print("Recording segment \(currentSegmentIndex) started: \(audioFilename.lastPathComponent)")
-        } catch {
-            print("Could not start recording segment: \(error.localizedDescription)")
+        audioWriteQueue.sync {
+            self.currentAudioFile = file
         }
+
+        recordingSegments.append(audioFilename)
+        currentSegmentIndex += 1
+
+        print("AVAudioEngine: Opened segment file \(currentSegmentIndex): \(audioFilename.lastPathComponent)")
     }
 
     func stopRecording() {
-        // Stop current segment if recording
-        if audioRecorder?.isRecording == true {
-            audioRecorder?.stop()
-        }
-        audioRecorder = nil
+        // Stop engine and remove tap
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
 
-        // Stop silent audio playback
-        stopSilentAudioPlayback()
+        // Close current audio file
+        audioWriteQueue.sync {
+            self.currentAudioFile = nil
+        }
 
         isRecording = false
         isPausedForCall = false
+        isSuspendedForInterruption = false
         durationTimer?.invalidate()
         durationTimer = nil
 
@@ -442,17 +400,12 @@ class RecordingManager: NSObject, ObservableObject {
         endRecordingLiveActivity()
     }
 
-    /// Merges multiple recording segments into one file if needed
+    /// Merges recording segments and exports to compressed M4A
+    /// Even single segments are exported to M4A to compress from raw PCM (CAF) to AAC
     private func mergeAudioSegments() async -> URL? {
         guard !recordingSegments.isEmpty else { return nil }
 
-        // If only one segment, just return it
-        if recordingSegments.count == 1 {
-            print("Only one segment, no merge needed")
-            return recordingSegments[0]
-        }
-
-        print("Merging \(recordingSegments.count) audio segments...")
+        print("Exporting \(recordingSegments.count) audio segment(s) to M4A...")
 
         // Create composition for merging
         let composition = AVMutableComposition()
@@ -887,7 +840,51 @@ class RecordingManager: NSObject, ObservableObject {
         }
     }
 
-    /// Update Live Activity to show "Ready to Resume" state with button
+    /// Update Live Activity to show "Mic Resumed" state (brief visual feedback after auto-resume)
+    private func updateLiveActivityToResumed() {
+        guard let activity = recordingActivity else {
+            print("Live Activity: No active activity to update to resumed")
+            return
+        }
+
+        let updatedState = RecordingActivityAttributes.ContentState(
+            state: .resumed,
+            pausedAtDuration: "",
+            message: "Mic resumed - Listening"
+        )
+
+        Task {
+            await activity.update(
+                ActivityContent(state: updatedState, staleDate: nil),
+                alertConfiguration: AlertConfiguration(
+                    title: "Recording Resumed",
+                    body: "Mic is active again",
+                    sound: .default
+                )
+            )
+            print("Live Activity: Updated to resumed state (brief feedback)")
+        }
+    }
+
+    /// Update Live Activity back to normal recording state (minimal)
+    private func updateLiveActivityToRecording() {
+        guard let activity = recordingActivity else { return }
+
+        let updatedState = RecordingActivityAttributes.ContentState(
+            state: .recording,
+            pausedAtDuration: "",
+            message: "Recording"
+        )
+
+        Task {
+            await activity.update(
+                ActivityContent(state: updatedState, staleDate: nil)
+            )
+            print("Live Activity: Reverted to recording state")
+        }
+    }
+
+    /// Update Live Activity to show "Ready to Resume" state with button (fallback when auto-resume fails)
     private func updateLiveActivityToReadyToResume() {
         guard let activity = recordingActivity else {
             print("Live Activity: No active activity to update")
@@ -927,25 +924,6 @@ class RecordingManager: NSObject, ObservableObject {
     }
 }
 
-// MARK: - AVAudioRecorderDelegate
-extension RecordingManager: AVAudioRecorderDelegate {
-    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        Task { @MainActor in
-            if flag {
-                print("Recording finished successfully")
-            } else {
-                print("Recording failed")
-            }
-        }
-    }
-
-    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        Task { @MainActor in
-            print("Encoding error: \(error?.localizedDescription ?? "Unknown error")")
-        }
-    }
-}
-
 // MARK: - CXCallObserverDelegate
 extension RecordingManager: CXCallObserverDelegate {
     /// Called when any call state changes on the device
@@ -968,8 +946,6 @@ extension RecordingManager: CXCallObserverDelegate {
                 // Call ended - check if all calls are done
                 if activeCallsCount == 0 {
                     print("CallKit: All calls ended")
-                    // Update Live Activity to show "Tap to Resume" button
-                    // instead of immediately trying to resume (which fails in background)
                     handleCallEnded()
                 }
             } else if !hasEnded && (isOutgoing || hasConnected || !isOnHold) {
@@ -980,8 +956,9 @@ extension RecordingManager: CXCallObserverDelegate {
         }
     }
 
-    /// Stop current recording segment when a phone call is detected
-    /// We STOP instead of PAUSE because AVAudioRecorder has known issues resuming after interruptions
+    /// Close current audio file when a phone call is detected
+    /// With AVAudioEngine: do NOT stop engine or deactivate session — system handles engine suspension
+    /// Just close the file to finalize the segment; engine will be restarted on resume
     private func pauseRecordingForCall() {
         guard isRecording, !isPausedForCall else {
             print("CallKit: Cannot pause - isRecording: \(isRecording), isPausedForCall: \(isPausedForCall)")
@@ -989,7 +966,6 @@ extension RecordingManager: CXCallObserverDelegate {
         }
 
         // Update Live Activity to show "Paused for call" state
-        // The Live Activity was already started when recording began
         updateLiveActivityToPaused(pausedAtDuration: recordingDuration)
 
         // Save elapsed time
@@ -997,147 +973,167 @@ extension RecordingManager: CXCallObserverDelegate {
             elapsedTimeBeforePause += Date().timeIntervalSince(startTime)
         }
 
+        isSuspendedForInterruption = true
         isPausedForCall = true
         durationTimer?.invalidate()
         durationTimer = nil
 
-        // STOP the current segment (not pause) - this finalizes the file
-        // We'll create a NEW segment when the call ends
-        audioRecorder?.stop()
-        audioRecorder = nil
-        stopSilentAudioPlayback()
-
-        // CRITICAL: Deactivate audio session when call starts
-        // This tells iOS we're yielding the audio session to the phone call
-        // Without this, iOS may not properly restore our session when the call ends
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            print("CallKit: Audio session DEACTIVATED for phone call")
-        } catch {
-            print("CallKit: Failed to deactivate audio session: \(error.localizedDescription)")
+        // Close current audio file to finalize this segment
+        // Do NOT stop engine or deactivate session — this is critical for background restart
+        audioWriteQueue.sync {
+            self.currentAudioFile = nil
         }
 
-        print("CallKit: Recording segment STOPPED for phone call (segment \(currentSegmentIndex) saved)")
+        print("CallKit: Audio file closed for phone call (segment \(currentSegmentIndex) saved, engine suspended by system)")
     }
 
-    /// Called when call ends - update Live Activity to show "Tap to Resume"
+    /// Called when call ends - attempt auto-resume first, fall back to manual
     private func handleCallEnded() {
         guard isRecording, isPausedForCall else {
             print("CallKit: Call ended but not in paused recording state")
             return
         }
 
-        print("CallKit: Call ended, updating Live Activity to show resume button")
+        print("CallKit: Call ended, attempting auto-resume")
 
-        // Update Live Activity to show "Tap to Resume" button
-        // The user will tap this to resume, which triggers handleLiveActivityResumeRequest
-        updateLiveActivityToReadyToResume()
+        // Auto-resume recording (YapNote-style seamless experience)
+        autoResumeRecording()
     }
 
-    /// Start a NEW recording segment after phone call ends
-    /// This is more reliable than trying to resume the old AVAudioRecorder instance
-    private func resumeRecordingAfterCall() {
+    /// Automatically resume recording after a call ends (YapNote-style)
+    /// Updates Live Activity to show brief "resumed" feedback, then reverts to recording state
+    /// Falls back to manual "Tap to Resume" if auto-resume fails after all retries
+    private func autoResumeRecording() {
         guard isRecording, isPausedForCall else {
-            print("CallKit: Cannot resume - isRecording: \(isRecording), isPausedForCall: \(isPausedForCall)")
+            print("AutoResume: Cannot resume - isRecording: \(isRecording), isPausedForCall: \(isPausedForCall)")
             return
         }
 
-        print("CallKit: Attempting to start new recording segment with retry logic...")
+        print("AutoResume: Starting automatic resume with background task...")
 
-        // CRITICAL: Request background execution time from iOS
-        // This is essential when the app is woken from suspension after a phone call
-        // Without this, iOS may suspend the app before we can restart recording
+        // Request background execution time
         var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "ResumeRecording") {
-            // Expiration handler - clean up if we run out of time
-            print("CallKit: Background task expired before recording could resume")
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "AutoResumeRecording") {
+            print("AutoResume: Background task expired")
             UIApplication.shared.endBackgroundTask(backgroundTaskID)
             backgroundTaskID = .invalid
         }
 
-        print("CallKit: Background task started with ID: \(backgroundTaskID.rawValue)")
-
-        // Start retry loop
         Task {
-            await attemptStartNewSegmentWithRetry()
+            let success = await attemptStartNewSegmentWithRetry()
 
-            // End background task when done
+            if success {
+                // Recording resumed — show brief "resumed" feedback in Live Activity
+                updateLiveActivityToResumed()
+
+                // After a few seconds, revert to normal minimal recording state
+                try? await Task.sleep(nanoseconds: 3_500_000_000) // 3.5 seconds
+                if isRecording, !isPausedForCall {
+                    updateLiveActivityToRecording()
+                }
+            } else {
+                // Auto-resume failed — fall back to manual "Tap to Resume"
+                print("AutoResume: Failed, falling back to manual resume")
+                updateLiveActivityToReadyToResume()
+            }
+
+            // End background task
             if backgroundTaskID != .invalid {
                 UIApplication.shared.endBackgroundTask(backgroundTaskID)
-                print("CallKit: Background task ended")
+                print("AutoResume: Background task ended")
             }
         }
     }
 
-    /// Attempts to start a new recording segment with retry logic
-    /// Audio session may not be immediately available after phone call ends
-    private func attemptStartNewSegmentWithRetry() async {
-        let maxRetries = 30
-        let delayBetweenRetries: UInt64 = 500_000_000 // 0.5 seconds in nanoseconds
+    /// Start a NEW recording segment after phone call ends (manual resume from Live Activity button)
+    /// This is the fallback path when auto-resume fails
+    private func resumeRecordingAfterCall() {
+        guard isRecording, isPausedForCall else {
+            print("ManualResume: Cannot resume - isRecording: \(isRecording), isPausedForCall: \(isPausedForCall)")
+            return
+        }
+
+        print("ManualResume: Attempting to start new recording segment...")
+
+        var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "ResumeRecording") {
+            print("ManualResume: Background task expired")
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
+        }
+
+        Task {
+            let success = await attemptStartNewSegmentWithRetry()
+
+            if success {
+                // Show brief "resumed" feedback then revert to recording
+                updateLiveActivityToResumed()
+                try? await Task.sleep(nanoseconds: 3_500_000_000)
+                if isRecording, !isPausedForCall {
+                    updateLiveActivityToRecording()
+                }
+            }
+
+            if backgroundTaskID != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTaskID)
+                print("ManualResume: Background task ended")
+            }
+        }
+    }
+
+    /// Attempts to restart the AVAudioEngine and open a new segment file
+    /// With AVAudioEngine this is much more reliable than AVAudioRecorder — engine.start() works from background
+    /// Returns true if recording was successfully resumed
+    @discardableResult
+    private func attemptStartNewSegmentWithRetry() async -> Bool {
+        let maxRetries = 10
+        let delayBetweenRetries: UInt64 = 300_000_000 // 0.3 seconds
 
         for attempt in 1...maxRetries {
-            // Check if we should still try to resume
             guard isRecording, isPausedForCall else {
-                print("CallKit: Retry cancelled - state changed")
-                return
+                print("Retry: Cancelled - state changed")
+                return false
             }
 
-            print("CallKit: New segment attempt \(attempt)/\(maxRetries)")
+            guard let engine = audioEngine else {
+                print("Retry: No engine available")
+                return false
+            }
 
-            // Try to reactivate audio session
+            print("Retry: Engine restart attempt \(attempt)/\(maxRetries)")
+
             do {
+                // Reactivate audio session
                 try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
-                print("CallKit: Audio session reactivated on attempt \(attempt)")
 
-                // Create a NEW recorder with a NEW file (segment-based approach)
-                let timestamp = Date().timeIntervalSince1970
-                let audioFilename = getDocumentsDirectory().appendingPathComponent("recording_\(timestamp)_segment\(currentSegmentIndex).m4a")
+                // Check if input format changed (e.g., Bluetooth disconnected during call)
+                let inputNode = engine.inputNode
+                let currentFormat = inputNode.outputFormat(forBus: 0)
 
-                let settings: [String: Any] = [
-                    AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                    AVSampleRateKey: 44100,
-                    AVNumberOfChannelsKey: 1,
-                    AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-                ]
+                // Open new file for this segment
+                try openNewSegmentFile(format: currentFormat)
 
-                audioRecorder = try AVAudioRecorder(url: audioFilename, settings: settings)
-                audioRecorder?.delegate = self
+                // Restart engine — nodes and tap are still configured from startRecording()
+                // This is the key advantage over AVAudioRecorder: engine.start() works from background
+                try engine.start()
 
-                // CRITICAL: Call prepareToRecord() first - this creates the file and primes the audio system
-                // This might be the key to making background recording work
-                if audioRecorder?.prepareToRecord() == true {
-                    print("CallKit: prepareToRecord() succeeded on attempt \(attempt)")
-                } else {
-                    print("CallKit: prepareToRecord() failed on attempt \(attempt)")
-                }
+                isSuspendedForInterruption = false
+                isPausedForCall = false
+                recordingStartTime = Date()
+                startDurationTimer()
 
-                // Start silent audio playback first
-                startSilentAudioPlayback()
-
-                // Try to start recording the new segment
-                if audioRecorder?.record() == true {
-                    recordingSegments.append(audioFilename)
-                    currentSegmentIndex += 1
-                    isPausedForCall = false
-                    recordingStartTime = Date()
-                    startDurationTimer()
-                    print("CallKit: NEW recording segment \(currentSegmentIndex) started on attempt \(attempt)!")
-                    return
-                } else {
-                    print("CallKit: recorder.record() returned false on attempt \(attempt)")
-                    audioRecorder = nil
-                    stopSilentAudioPlayback()
-                }
+                print("Retry: Engine restarted on attempt \(attempt), recording resumed!")
+                return true
             } catch {
-                print("CallKit: Attempt \(attempt) failed: \(error.localizedDescription)")
+                print("Retry: Attempt \(attempt) failed: \(error.localizedDescription)")
             }
 
-            // Wait before next retry
             if attempt < maxRetries {
                 try? await Task.sleep(nanoseconds: delayBetweenRetries)
             }
         }
 
-        print("CallKit: Failed to start new segment after \(maxRetries) attempts")
+        print("Retry: Failed to restart engine after \(maxRetries) attempts")
+        return false
     }
 }
