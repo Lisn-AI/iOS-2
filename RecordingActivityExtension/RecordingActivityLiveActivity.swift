@@ -5,26 +5,23 @@ import SwiftUI
 struct RecordingActivityLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: RecordingActivityAttributes.self) { context in
-            // Lock Screen / Banner UI - only show when paused or ready to resume
-            if context.state.state != .recording {
-                LockScreenView(context: context)
-            } else {
+            // Lock Screen / Banner UI
+            switch context.state.state {
+            case .recording:
                 // Minimal lock screen view during recording (almost invisible)
                 EmptyView()
+            case .resumed:
+                // Brief "mic resumed" feedback on Lock Screen
+                ResumedLockScreenView(context: context)
+            default:
+                // Paused or readyToResume
+                LockScreenView(context: context)
             }
         } dynamicIsland: { context in
             DynamicIsland {
                 // Expanded UI (when user long-presses)
                 DynamicIslandExpandedRegion(.leading) {
-                    if context.state.state == .recording {
-                        Image(systemName: "mic.fill")
-                            .font(.title)
-                            .foregroundColor(.green)
-                    } else {
-                        Image(systemName: context.state.state == .paused ? "pause.circle.fill" : "mic.circle.fill")
-                            .font(.title)
-                            .foregroundColor(context.state.state == .paused ? .orange : .green)
-                    }
+                    expandedLeadingIcon(for: context.state.state)
                 }
 
                 DynamicIslandExpandedRegion(.center) {
@@ -51,6 +48,10 @@ struct RecordingActivityLiveActivity: Widget {
                             }
                             .buttonStyle(.plain)
                         }
+                    } else if context.state.state == .resumed {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title)
+                            .foregroundColor(.green)
                     }
                 }
 
@@ -75,49 +76,88 @@ struct RecordingActivityLiveActivity: Widget {
                         Text("Recording will resume when call ends")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                    } else if context.state.state == .resumed {
+                        Text("Mic is active again")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(.green)
                     }
                 }
             } compactLeading: {
                 // Compact leading (left pill)
-                if context.state.state == .recording {
-                    // Minimal during recording - small green dot
+                switch context.state.state {
+                case .recording:
                     Circle()
                         .fill(Color.green)
                         .frame(width: 8, height: 8)
-                } else {
-                    Image(systemName: context.state.state == .paused ? "pause.fill" : "play.fill")
-                        .foregroundColor(context.state.state == .paused ? .orange : .green)
+                case .resumed:
+                    Image(systemName: "mic.fill")
+                        .foregroundColor(.green)
+                case .paused:
+                    Image(systemName: "pause.fill")
+                        .foregroundColor(.orange)
+                case .readyToResume:
+                    Image(systemName: "play.fill")
+                        .foregroundColor(.green)
                 }
             } compactTrailing: {
                 // Compact trailing (right pill)
-                if context.state.state == .recording {
-                    // Empty during recording to be minimal
+                switch context.state.state {
+                case .recording:
                     EmptyView()
-                } else if context.state.state == .readyToResume {
+                case .resumed:
+                    Text("Active")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.green)
+                case .readyToResume:
                     Text("Resume")
                         .font(.caption2)
                         .foregroundColor(.green)
-                } else {
+                case .paused:
                     Text("Paused")
                         .font(.caption2)
                         .foregroundColor(.orange)
                 }
             } minimal: {
                 // Minimal view (when another app has priority)
-                if context.state.state == .recording {
+                switch context.state.state {
+                case .recording, .resumed:
                     Circle()
                         .fill(Color.green)
                         .frame(width: 8, height: 8)
-                } else {
+                case .paused, .readyToResume:
                     Image(systemName: "pause.fill")
                         .foregroundColor(.orange)
                 }
             }
         }
     }
+
+    @ViewBuilder
+    private func expandedLeadingIcon(for state: RecordingActivityAttributes.RecordingState) -> some View {
+        switch state {
+        case .recording:
+            Image(systemName: "mic.fill")
+                .font(.title)
+                .foregroundColor(.green)
+        case .resumed:
+            Image(systemName: "mic.fill")
+                .font(.title)
+                .foregroundColor(.green)
+        case .paused:
+            Image(systemName: "pause.circle.fill")
+                .font(.title)
+                .foregroundColor(.orange)
+        case .readyToResume:
+            Image(systemName: "mic.circle.fill")
+                .font(.title)
+                .foregroundColor(.green)
+        }
+    }
 }
 
-// Lock Screen / Banner View
+// Lock Screen / Banner View (paused or readyToResume)
 struct LockScreenView: View {
     let context: ActivityViewContext<RecordingActivityAttributes>
 
@@ -141,7 +181,7 @@ struct LockScreenView: View {
 
             Spacer()
 
-            // Resume button (only when ready to resume)
+            // Resume button (only when ready to resume — fallback if auto-resume failed)
             if context.state.state == .readyToResume {
                 if #available(iOS 17.0, *) {
                     Button(intent: ResumeRecordingIntent()) {
@@ -164,6 +204,38 @@ struct LockScreenView: View {
     }
 }
 
+// Lock Screen view shown briefly after auto-resume (green confirmation)
+struct ResumedLockScreenView: View {
+    let context: ActivityViewContext<RecordingActivityAttributes>
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: "mic.fill")
+                .font(.largeTitle)
+                .foregroundColor(.green)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(context.state.message)
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.green)
+
+                Text("Recording is active")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title)
+                .foregroundColor(.green)
+        }
+        .padding()
+        .activityBackgroundTint(Color.green.opacity(0.15))
+    }
+}
+
 // Preview
 #Preview("Lock Screen", as: .content, using: RecordingActivityAttributes()) {
     RecordingActivityLiveActivity()
@@ -172,6 +244,11 @@ struct LockScreenView: View {
         state: .paused,
         pausedAtDuration: "02:34",
         message: "Recording paused for call"
+    )
+    RecordingActivityAttributes.ContentState(
+        state: .resumed,
+        pausedAtDuration: "",
+        message: "Mic resumed - Listening"
     )
     RecordingActivityAttributes.ContentState(
         state: .readyToResume,

@@ -16,9 +16,10 @@ struct RecordingActivityAttributes: ActivityAttributes {
 
     /// Recording states for the Live Activity
     enum RecordingState: String, Codable, Hashable {
-        case recording = "recording"  // Normal recording state
-        case paused = "paused"        // Paused for phone call
-        case readyToResume = "readyToResume"  // Call ended, tap to resume
+        case recording = "recording"          // Normal recording state
+        case paused = "paused"                // Paused for phone call
+        case resumed = "resumed"              // Just auto-resumed after call (brief visual prompt)
+        case readyToResume = "readyToResume"  // Fallback: auto-resume failed, tap to resume
     }
 
     // Static attributes (don't change during the activity)
