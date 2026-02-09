@@ -44,14 +44,14 @@ struct RecordingActivityLiveActivity: Widget {
                             Button(intent: ResumeRecordingIntent()) {
                                 Image(systemName: "play.circle.fill")
                                     .font(.title)
-                                    .foregroundColor(.green)
+                                    .foregroundColor(LisnSharedColors.accent)
                             }
                             .buttonStyle(.plain)
                         }
                     } else if context.state.state == .resumed {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.title)
-                            .foregroundColor(.green)
+                            .foregroundColor(LisnSharedColors.accent)
                     }
                 }
 
@@ -66,7 +66,7 @@ struct RecordingActivityLiveActivity: Widget {
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
-                                .background(Color.green)
+                                .background(LisnSharedColors.accent)
                                 .foregroundColor(.white)
                                 .cornerRadius(12)
                             }
@@ -80,7 +80,7 @@ struct RecordingActivityLiveActivity: Widget {
                         Text("Mic is active again")
                             .font(.caption)
                             .fontWeight(.medium)
-                            .foregroundColor(.green)
+                            .foregroundColor(LisnSharedColors.accent)
                     }
                 }
             } compactLeading: {
@@ -88,17 +88,17 @@ struct RecordingActivityLiveActivity: Widget {
                 switch context.state.state {
                 case .recording:
                     Circle()
-                        .fill(Color.green)
+                        .fill(LisnSharedColors.accent)
                         .frame(width: 8, height: 8)
                 case .resumed:
                     Image(systemName: "mic.fill")
-                        .foregroundColor(.green)
+                        .foregroundColor(LisnSharedColors.accent)
                 case .paused:
                     Image(systemName: "pause.fill")
-                        .foregroundColor(.orange)
+                        .foregroundColor(LisnSharedColors.paused)
                 case .readyToResume:
                     Image(systemName: "play.fill")
-                        .foregroundColor(.green)
+                        .foregroundColor(LisnSharedColors.accent)
                 }
             } compactTrailing: {
                 // Compact trailing (right pill)
@@ -109,26 +109,26 @@ struct RecordingActivityLiveActivity: Widget {
                     Text("Active")
                         .font(.caption2)
                         .fontWeight(.semibold)
-                        .foregroundColor(.green)
+                        .foregroundColor(LisnSharedColors.accent)
                 case .readyToResume:
                     Text("Resume")
                         .font(.caption2)
-                        .foregroundColor(.green)
+                        .foregroundColor(LisnSharedColors.accent)
                 case .paused:
                     Text("Paused")
                         .font(.caption2)
-                        .foregroundColor(.orange)
+                        .foregroundColor(LisnSharedColors.paused)
                 }
             } minimal: {
                 // Minimal view (when another app has priority)
                 switch context.state.state {
                 case .recording, .resumed:
                     Circle()
-                        .fill(Color.green)
+                        .fill(LisnSharedColors.accent)
                         .frame(width: 8, height: 8)
                 case .paused, .readyToResume:
                     Image(systemName: "pause.fill")
-                        .foregroundColor(.orange)
+                        .foregroundColor(LisnSharedColors.paused)
                 }
             }
         }
@@ -140,19 +140,19 @@ struct RecordingActivityLiveActivity: Widget {
         case .recording:
             Image(systemName: "mic.fill")
                 .font(.title)
-                .foregroundColor(.green)
+                .foregroundColor(LisnSharedColors.accent)
         case .resumed:
             Image(systemName: "mic.fill")
                 .font(.title)
-                .foregroundColor(.green)
+                .foregroundColor(LisnSharedColors.accent)
         case .paused:
             Image(systemName: "pause.circle.fill")
                 .font(.title)
-                .foregroundColor(.orange)
+                .foregroundColor(LisnSharedColors.paused)
         case .readyToResume:
             Image(systemName: "mic.circle.fill")
                 .font(.title)
-                .foregroundColor(.green)
+                .foregroundColor(LisnSharedColors.accent)
         }
     }
 }
@@ -166,7 +166,7 @@ struct LockScreenView: View {
             // Icon
             Image(systemName: context.state.state == .paused ? "pause.circle.fill" : "mic.circle.fill")
                 .font(.largeTitle)
-                .foregroundColor(context.state.state == .paused ? .orange : .green)
+                .foregroundColor(context.state.state == .paused ? LisnSharedColors.paused : LisnSharedColors.accent)
 
             // Text content
             VStack(alignment: .leading, spacing: 4) {
@@ -191,7 +191,7 @@ struct LockScreenView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(Color.green)
+                        .background(LisnSharedColors.accent)
                         .foregroundColor(.white)
                         .cornerRadius(20)
                     }
@@ -212,13 +212,13 @@ struct ResumedLockScreenView: View {
         HStack(spacing: 16) {
             Image(systemName: "mic.fill")
                 .font(.largeTitle)
-                .foregroundColor(.green)
+                .foregroundColor(LisnSharedColors.accent)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(context.state.message)
                     .font(.headline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.green)
+                    .foregroundColor(LisnSharedColors.accent)
 
                 Text("Recording is active")
                     .font(.subheadline)
@@ -229,10 +229,10 @@ struct ResumedLockScreenView: View {
 
             Image(systemName: "checkmark.circle.fill")
                 .font(.title)
-                .foregroundColor(.green)
+                .foregroundColor(LisnSharedColors.accent)
         }
         .padding()
-        .activityBackgroundTint(Color.green.opacity(0.15))
+        .activityBackgroundTint(LisnSharedColors.accent.opacity(0.15))
     }
 }
 

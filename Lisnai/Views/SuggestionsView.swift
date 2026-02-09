@@ -20,6 +20,7 @@ struct SuggestionsView: View {
                 }
             }
             .navigationTitle("Suggestions")
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { Task { await viewModel.refresh() } }) {
@@ -95,6 +96,7 @@ struct SuggestionsView: View {
                         selectedSuggestion = suggestion
                         showDetailSheet = true
                     }
+                    .listRowBackground(LisnColors.bgElevated)
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
                             Task { await viewModel.dismissSuggestion(suggestion) }
@@ -114,10 +116,12 @@ struct SuggestionsView: View {
                         } label: {
                             Label("Accept", systemImage: "checkmark")
                         }
-                        .tint(.green)
+                        .tint(LisnColors.success)
                     }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(LisnColors.bgPrimary)
     }
 }
 
@@ -127,20 +131,20 @@ struct SuggestionRow: View {
     let suggestion: ProactiveSuggestion
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: LisnSpacing.sm) {
             // Type icon
             Image(systemName: typeIcon)
-                .font(.title2)
+                .font(LisnFont.titleLarge())
                 .foregroundColor(typeColor)
                 .frame(width: 32)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(suggestion.title)
-                    .font(.headline)
+                    .font(LisnFont.titleSmall())
 
                 Text(suggestion.body)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(LisnFont.bodyMedium())
+                    .foregroundColor(LisnColors.textSecondary)
                     .lineLimit(2)
 
                 HStack {
@@ -150,23 +154,23 @@ struct SuggestionRow: View {
                             .fill(confidenceColor)
                             .frame(width: 8, height: 8)
                         Text(confidenceText)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(LisnFont.caption())
+                            .foregroundColor(LisnColors.textSecondary)
                     }
 
-                    Text("•")
-                        .foregroundColor(.secondary)
+                    Text("\u{2022}")
+                        .foregroundColor(LisnColors.textSecondary)
 
                     Text(formattedDate)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(LisnFont.caption())
+                        .foregroundColor(LisnColors.textSecondary)
                 }
             }
 
             Spacer()
 
             Image(systemName: "chevron.right")
-                .foregroundColor(.secondary)
+                .foregroundColor(LisnColors.textSecondary)
         }
         .padding(.vertical, 4)
     }
@@ -185,23 +189,23 @@ struct SuggestionRow: View {
 
     private var typeColor: Color {
         switch suggestion.type {
-        case "call_reminder": return .green
-        case "follow_up": return .blue
-        case "task_reminder": return .orange
-        case "pattern_insight": return .purple
-        case "connection_prompt": return .pink
-        case "event_reminder": return .cyan
-        default: return .yellow
+        case "call_reminder": return LisnColors.success
+        case "follow_up": return LisnColors.accent
+        case "task_reminder": return LisnColors.warning
+        case "pattern_insight": return Color.purple
+        case "connection_prompt": return Color.pink
+        case "event_reminder": return Color.cyan
+        default: return LisnColors.warning
         }
     }
 
     private var confidenceColor: Color {
         if suggestion.confidence >= 0.8 {
-            return .green
+            return LisnColors.success
         } else if suggestion.confidence >= 0.6 {
-            return .orange
+            return LisnColors.warning
         } else {
-            return .gray
+            return LisnColors.textTertiary
         }
     }
 
@@ -232,89 +236,87 @@ struct SuggestionDetailSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: LisnSpacing.xl) {
                     // Header
-                    VStack(spacing: 12) {
+                    VStack(spacing: LisnSpacing.sm) {
                         Image(systemName: typeIcon)
                             .font(.system(size: 48))
                             .foregroundColor(typeColor)
 
                         Text(suggestion.title)
-                            .font(.title2)
+                            .font(LisnFont.titleLarge())
                             .fontWeight(.semibold)
                             .multilineTextAlignment(.center)
 
                         Text(typeName)
-                            .font(.caption)
-                            .padding(.horizontal, 12)
+                            .font(LisnFont.caption())
+                            .padding(.horizontal, LisnSpacing.sm)
                             .padding(.vertical, 4)
                             .background(typeColor.opacity(0.2))
                             .foregroundColor(typeColor)
-                            .cornerRadius(12)
+                            .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
                     }
                     .padding(.top)
 
                     // Body
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Suggestion")
-                            .font(.headline)
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: LisnSpacing.sm) {
+                            Text("Suggestion")
+                                .font(LisnFont.titleSmall())
 
-                        Text(suggestion.body)
-                            .font(.body)
-                            .foregroundColor(.secondary)
+                            Text(suggestion.body)
+                                .font(LisnFont.bodyLarge())
+                                .foregroundColor(LisnColors.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
 
                     // Reasoning
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Why this suggestion?")
-                            .font(.headline)
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: LisnSpacing.sm) {
+                            Text("Why this suggestion?")
+                                .font(LisnFont.titleSmall())
 
-                        Text(suggestion.reasoning)
-                            .font(.body)
-                            .foregroundColor(.secondary)
+                            Text(suggestion.reasoning)
+                                .font(LisnFont.bodyLarge())
+                                .foregroundColor(LisnColors.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
 
                     // Confidence
                     HStack {
                         Image(systemName: "chart.bar.fill")
                             .foregroundColor(confidenceColor)
                         Text("Confidence: \(Int(suggestion.confidence * 100))%")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .font(LisnFont.bodyMedium())
+                            .foregroundColor(LisnColors.textSecondary)
                     }
 
                     // Suggested action preview
                     if let action = suggestion.suggestedAction {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: LisnSpacing.xs) {
                             Text("Suggested Action")
-                                .font(.headline)
+                                .font(LisnFont.titleSmall())
 
                             HStack {
                                 Image(systemName: "bolt.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(LisnColors.accent)
                                 Text("\(action.skill) > \(action.tool)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                                    .font(LisnFont.bodyMedium())
+                                    .foregroundColor(LisnColors.textSecondary)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(12)
+                        .background(LisnColors.accent.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
                     }
 
                     Spacer()
 
                     // Action buttons
-                    VStack(spacing: 12) {
+                    VStack(spacing: LisnSpacing.sm) {
                         Button(action: onAccept) {
                             HStack {
                                 Image(systemName: "checkmark.circle.fill")
@@ -322,9 +324,9 @@ struct SuggestionDetailSheet: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color.green)
+                            .background(LisnColors.success)
                             .foregroundColor(.white)
-                            .cornerRadius(12)
+                            .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
                         }
 
                         Button(action: onDismiss) {
@@ -334,9 +336,9 @@ struct SuggestionDetailSheet: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color(.systemGray5))
+                            .background(LisnColors.bgSecondary)
                             .foregroundColor(.primary)
-                            .cornerRadius(12)
+                            .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
                         }
                     }
                 }
@@ -366,13 +368,13 @@ struct SuggestionDetailSheet: View {
 
     private var typeColor: Color {
         switch suggestion.type {
-        case "call_reminder": return .green
-        case "follow_up": return .blue
-        case "task_reminder": return .orange
-        case "pattern_insight": return .purple
-        case "connection_prompt": return .pink
-        case "event_reminder": return .cyan
-        default: return .yellow
+        case "call_reminder": return LisnColors.success
+        case "follow_up": return LisnColors.accent
+        case "task_reminder": return LisnColors.warning
+        case "pattern_insight": return Color.purple
+        case "connection_prompt": return Color.pink
+        case "event_reminder": return Color.cyan
+        default: return LisnColors.warning
         }
     }
 
@@ -390,11 +392,11 @@ struct SuggestionDetailSheet: View {
 
     private var confidenceColor: Color {
         if suggestion.confidence >= 0.8 {
-            return .green
+            return LisnColors.success
         } else if suggestion.confidence >= 0.6 {
-            return .orange
+            return LisnColors.warning
         } else {
-            return .gray
+            return LisnColors.textTertiary
         }
     }
 }

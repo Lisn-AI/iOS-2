@@ -105,10 +105,10 @@ struct TaskActivityLiveActivity: Widget {
 
     private func priorityColor(_ priority: String) -> Color {
         switch priority.lowercased() {
-        case "critical": return .red
-        case "high": return .orange
-        case "medium": return .yellow
-        default: return .green
+        case "critical": return LisnSharedColors.error
+        case "high": return LisnSharedColors.warning
+        case "medium": return Color.yellow
+        default: return LisnSharedColors.success
         }
     }
 
@@ -209,7 +209,7 @@ struct TaskLockScreenView: View {
                             Text(deadline)
                                 .font(.caption)
                         }
-                        .foregroundColor(isUrgent(deadline) ? .orange : .secondary)
+                        .foregroundColor(isUrgent(deadline) ? LisnSharedColors.warning : .secondary)
                     }
 
                     Spacer()
@@ -232,10 +232,10 @@ struct TaskLockScreenView: View {
 
     private func priorityColor(_ priority: String) -> Color {
         switch priority.lowercased() {
-        case "critical": return .red
-        case "high": return .orange
-        case "medium": return .yellow
-        default: return .green
+        case "critical": return LisnSharedColors.error
+        case "high": return LisnSharedColors.warning
+        case "medium": return Color.yellow
+        default: return LisnSharedColors.success
         }
     }
 

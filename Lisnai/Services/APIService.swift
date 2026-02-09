@@ -187,12 +187,9 @@ class APIService: ObservableObject {
 
     /// Search memories semantically
     func searchMemories(query: String, limit: Int = 10) async throws -> SearchResponse {
-        let body = SearchRequest(query: query, limit: limit)
-
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
         let request = try await createRequest(
-            endpoint: "/api/memories/search",
-            method: "POST",
-            body: try encoder.encode(body)
+            endpoint: "/api/memories/search?query=\(encodedQuery)&limit=\(limit)"
         )
 
         return try await execute(request)
@@ -444,11 +441,6 @@ struct ChatRequest: Codable {
 struct ChatHistoryItem: Codable {
     let role: String
     let content: String
-}
-
-struct SearchRequest: Codable {
-    let query: String
-    let limit: Int
 }
 
 struct ActionCompletionRequest: Codable {

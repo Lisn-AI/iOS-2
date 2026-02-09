@@ -31,29 +31,33 @@ struct SettingsView: View {
                         Label("Daily Briefings", systemImage: "sun.haze")
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(LisnColors.textSecondary)
                     }
                 }
+                .listRowBackground(LisnColors.bgElevated)
 
                 Button(action: { showCommitments = true }) {
                     HStack {
                         Label("Commitments", systemImage: "checkmark.seal")
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(LisnColors.textSecondary)
                     }
                 }
+                .listRowBackground(LisnColors.bgElevated)
 
                 Button(action: { showPermissionRules = true }) {
                     HStack {
                         Label("Permission Rules", systemImage: "lock.shield")
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(LisnColors.textSecondary)
                     }
                 }
+                .listRowBackground(LisnColors.bgElevated)
             } header: {
                 Text("Quick Access")
+                    .lisnSectionHeader()
             }
 
             // Cloud Backup Section
@@ -61,20 +65,23 @@ struct SettingsView: View {
                 Toggle(isOn: $cloudBackupEnabled) {
                     Label("Cloud Backup", systemImage: "icloud")
                 }
+                .listRowBackground(LisnColors.bgElevated)
 
                 if !cloudBackupEnabled {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                            .font(.caption)
+                            .foregroundColor(LisnColors.warning)
+                            .font(LisnFont.caption())
 
                         Text("Without backup, deleting the app will permanently delete all your memories.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(LisnFont.caption())
+                            .foregroundColor(LisnColors.textSecondary)
                     }
+                    .listRowBackground(LisnColors.bgElevated)
                 }
             } header: {
                 Text("Data")
+                    .lisnSectionHeader()
             } footer: {
                 Text("Enable cloud backup to sync your transcriptions and summaries across devices.")
             }
@@ -84,22 +91,27 @@ struct SettingsView: View {
                 Toggle(isOn: $notificationsEnabled) {
                     Label("Push Notifications", systemImage: "bell")
                 }
+                .listRowBackground(LisnColors.bgElevated)
 
                 if notificationsEnabled {
                     Toggle(isOn: $dailyBriefingEnabled) {
                         Label("Daily Briefings", systemImage: "sun.haze")
                     }
+                    .listRowBackground(LisnColors.bgElevated)
 
                     Toggle(isOn: $suggestionsEnabled) {
                         Label("Proactive Suggestions", systemImage: "lightbulb")
                     }
+                    .listRowBackground(LisnColors.bgElevated)
 
                     Toggle(isOn: $commitmentRemindersEnabled) {
                         Label("Commitment Reminders", systemImage: "checkmark.seal")
                     }
+                    .listRowBackground(LisnColors.bgElevated)
                 }
             } header: {
                 Text("Notifications")
+                    .lisnSectionHeader()
             } footer: {
                 Text("Control which types of notifications you receive from LisnAI.")
             }
@@ -108,8 +120,9 @@ struct SettingsView: View {
             if notificationsEnabled {
                 Section {
                     Toggle(isOn: $quietHoursEnabled) {
-                        Label("Quiet Hours", systemImage: "moon.fill")
+                        Label("Quiet Hours", systemImage: "moon")
                     }
+                    .listRowBackground(LisnColors.bgElevated)
 
                     if quietHoursEnabled {
                         Stepper(value: $quietHoursStart, in: 0...23) {
@@ -117,30 +130,34 @@ struct SettingsView: View {
                                 Text("Start")
                                 Spacer()
                                 Text(formatHour(quietHoursStart))
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(LisnColors.textSecondary)
                             }
                         }
+                        .listRowBackground(LisnColors.bgElevated)
 
                         Stepper(value: $quietHoursEnd, in: 0...23) {
                             HStack {
                                 Text("End")
                                 Spacer()
                                 Text(formatHour(quietHoursEnd))
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(LisnColors.textSecondary)
                             }
                         }
+                        .listRowBackground(LisnColors.bgElevated)
 
                         Stepper(value: $maxNotificationsPerDay, in: 1...20) {
                             HStack {
                                 Text("Max per day")
                                 Spacer()
                                 Text("\(maxNotificationsPerDay)")
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(LisnColors.textSecondary)
                             }
                         }
+                        .listRowBackground(LisnColors.bgElevated)
                     }
                 } header: {
                     Text("Notification Schedule")
+                        .lisnSectionHeader()
                 } footer: {
                     Text("During quiet hours, only urgent notifications will be delivered.")
                 }
@@ -150,30 +167,32 @@ struct SettingsView: View {
             Section {
                 if let user = authService.user {
                     HStack {
-                        Image(systemName: "person.circle.fill")
+                        Image(systemName: "person.circle")
                             .font(.title2)
-                            .foregroundColor(.blue)
+                            .foregroundColor(LisnColors.accent)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(user.displayName ?? "User")
-                                .font(.subheadline)
+                                .font(LisnFont.bodyMedium())
                                 .fontWeight(.medium)
                             Text(user.email ?? "No email")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                                .font(LisnFont.caption())
+                                .foregroundColor(LisnColors.textSecondary)
                         }
                     }
+                    .listRowBackground(LisnColors.bgElevated)
 
                     // Device token status
                     HStack {
                         Image(systemName: notificationService.isAuthorized ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundColor(notificationService.isAuthorized ? .green : .red)
+                            .foregroundColor(notificationService.isAuthorized ? LisnColors.success : LisnColors.error)
                         Text("Push Notifications")
                         Spacer()
                         Text(notificationService.isAuthorized ? "Enabled" : "Disabled")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(LisnFont.caption())
+                            .foregroundColor(LisnColors.textSecondary)
                     }
+                    .listRowBackground(LisnColors.bgElevated)
 
                     Button {
                         do {
@@ -184,9 +203,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                     }
+                    .listRowBackground(LisnColors.bgElevated)
                 }
             } header: {
                 Text("Account")
+                    .lisnSectionHeader()
             }
 
             // About Section
@@ -195,22 +216,27 @@ struct SettingsView: View {
                     Text("Version")
                     Spacer()
                     Text(appVersion)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(LisnColors.textSecondary)
                 }
+                .listRowBackground(LisnColors.bgElevated)
 
                 Link(destination: URL(string: "https://lisnai.com/privacy")!) {
                     Label("Privacy Policy", systemImage: "hand.raised")
                 }
+                .listRowBackground(LisnColors.bgElevated)
 
                 Link(destination: URL(string: "https://lisnai.com/terms")!) {
                     Label("Terms of Service", systemImage: "doc.text")
                 }
+                .listRowBackground(LisnColors.bgElevated)
 
                 Link(destination: URL(string: "https://github.com/lisnai/ios/issues")!) {
                     Label("Report an Issue", systemImage: "ladybug")
                 }
+                .listRowBackground(LisnColors.bgElevated)
             } header: {
                 Text("About")
+                    .lisnSectionHeader()
             }
 
             // Danger Zone
@@ -226,18 +252,23 @@ struct SettingsView: View {
                         }
                     } else {
                         Label("Delete All Data", systemImage: "trash")
-                            .foregroundColor(.red)
+                            .foregroundColor(LisnColors.error)
                     }
                 }
                 .disabled(isDeleting)
+                .listRowBackground(LisnColors.bgElevated)
             } header: {
                 Text("Danger Zone")
+                    .lisnSectionHeader()
             } footer: {
                 Text("This will permanently delete all your recordings, transcriptions, and summaries from this device and the cloud.")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(LisnColors.bgPrimary)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
+        .toolbarBackground(LisnColors.bgPrimary, for: .navigationBar)
         .sheet(isPresented: $showBriefings) {
             BriefingsView()
         }
@@ -342,29 +373,30 @@ struct PermissionRulesView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Image(systemName: (rule.enabled ?? true) ? "checkmark.circle.fill" : "circle")
-                            .foregroundColor((rule.enabled ?? true) ? .green : .secondary)
+                            .foregroundColor((rule.enabled ?? true) ? LisnColors.success : LisnColors.textSecondary)
 
                         Text(rule.pattern)
-                            .font(.headline)
+                            .font(LisnFont.titleSmall())
                     }
 
                     if let description = rule.description {
                         Text(description)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .font(LisnFont.bodyMedium())
+                            .foregroundColor(LisnColors.textSecondary)
                     }
 
                     HStack {
                         Label(rule.matchMode.capitalized, systemImage: "magnifyingglass")
-                            .font(.caption)
-                            .foregroundColor(.blue)
+                            .font(LisnFont.caption())
+                            .foregroundColor(LisnColors.accent)
 
                         Label(rule.scope.capitalized, systemImage: "scope")
-                            .font(.caption)
-                            .foregroundColor(.purple)
+                            .font(LisnFont.caption())
+                            .foregroundColor(Color.purple)
                     }
                 }
                 .padding(.vertical, 4)
+                .listRowBackground(LisnColors.bgElevated)
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {
                         Task { await viewModel.deleteRule(rule) }
@@ -374,6 +406,8 @@ struct PermissionRulesView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(LisnColors.bgPrimary)
     }
 }
 

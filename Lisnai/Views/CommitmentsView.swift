@@ -19,6 +19,7 @@ struct CommitmentsView: View {
                 }
             }
             .navigationTitle("Commitments")
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -120,24 +121,25 @@ struct CommitmentsView: View {
             // Summary section
             if selectedFilter == .all || selectedFilter == .active {
                 Section {
-                    HStack(spacing: 16) {
+                    HStack(spacing: LisnSpacing.md) {
                         StatBox(
                             title: "Active",
                             count: viewModel.commitments.filter { $0.status != "completed" }.count,
-                            color: .blue
+                            color: LisnColors.accent
                         )
                         StatBox(
                             title: "Due Today",
                             count: viewModel.commitments.filter { isDueToday($0) }.count,
-                            color: .orange
+                            color: LisnColors.warning
                         )
                         StatBox(
                             title: "Overdue",
                             count: viewModel.commitments.filter { isOverdue($0) }.count,
-                            color: .red
+                            color: LisnColors.error
                         )
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, LisnSpacing.xxs)
+                    .listRowBackground(LisnColors.bgElevated)
                 }
             }
 
@@ -151,6 +153,7 @@ struct CommitmentsView: View {
                                 selectedCommitment = commitment
                                 showDetailSheet = true
                             }
+                            .listRowBackground(LisnColors.bgElevated)
                             .swipeActions(edge: .trailing) {
                                 if commitment.status != "completed" {
                                     Button {
@@ -158,7 +161,7 @@ struct CommitmentsView: View {
                                     } label: {
                                         Label("Complete", systemImage: "checkmark")
                                     }
-                                    .tint(.green)
+                                    .tint(LisnColors.success)
                                 }
                             }
                     }
@@ -168,6 +171,8 @@ struct CommitmentsView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(LisnColors.bgPrimary)
     }
 
     private var groupedCommitments: [String: [Commitment]] {
@@ -209,10 +214,10 @@ struct CommitmentsView: View {
 
     private func urgencyColor(_ urgency: String) -> Color {
         switch urgency.lowercased() {
-        case "high": return .red
-        case "medium": return .orange
-        case "low": return .blue
-        default: return .secondary
+        case "high": return LisnColors.error
+        case "medium": return LisnColors.warning
+        case "low": return LisnColors.accent
+        default: return LisnColors.textSecondary
         }
     }
 }
@@ -225,19 +230,21 @@ struct StatBox: View {
     let color: Color
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: LisnSpacing.xxs) {
             Text("\(count)")
-                .font(.title2)
+                .font(LisnFont.titleLarge())
                 .fontWeight(.bold)
                 .foregroundColor(color)
             Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(LisnFont.caption())
+                .foregroundColor(LisnColors.textSecondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(color.opacity(0.1))
-        .cornerRadius(8)
+        .padding(.vertical, LisnSpacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous)
+                .fill(color.opacity(0.08))
+        )
     }
 }
 
@@ -247,38 +254,38 @@ struct CommitmentRow: View {
     let commitment: Commitment
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: LisnSpacing.sm) {
             // Status indicator
             Image(systemName: statusIcon)
-                .font(.title2)
+                .font(LisnFont.titleLarge())
                 .foregroundColor(statusColor)
                 .frame(width: 32)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: LisnSpacing.xxs) {
                 Text(commitment.description)
-                    .font(.headline)
+                    .font(LisnFont.titleSmall())
                     .strikethrough(commitment.status == "completed")
 
-                HStack(spacing: 8) {
+                HStack(spacing: LisnSpacing.xs) {
                     // Type badge
                     Label(commitment.type.capitalized, systemImage: typeIcon)
-                        .font(.caption)
-                        .foregroundColor(.blue)
+                        .font(LisnFont.caption())
+                        .foregroundColor(LisnColors.accent)
 
                     // Person if present
                     if let person = commitment.person {
                         Text("-")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(LisnColors.textSecondary)
                         Label(person, systemImage: "person.fill")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(LisnFont.caption())
+                            .foregroundColor(LisnColors.textSecondary)
                     }
                 }
 
                 // Due date
                 if let dueDateString = commitment.dueDate {
                     Text(formattedDueDate(dueDateString))
-                        .font(.caption)
+                        .font(LisnFont.caption())
                         .foregroundColor(dueDateColor(dueDateString))
                 }
             }
@@ -287,13 +294,13 @@ struct CommitmentRow: View {
 
             if commitment.status != "completed" {
                 Image(systemName: "chevron.right")
-                    .foregroundColor(.secondary)
+                    .foregroundColor(LisnColors.textSecondary)
             } else {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
+                    .foregroundColor(LisnColors.success)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, LisnSpacing.xxs)
         .opacity(commitment.status == "completed" ? 0.6 : 1.0)
     }
 
@@ -307,9 +314,9 @@ struct CommitmentRow: View {
 
     private var statusColor: Color {
         switch commitment.status.lowercased() {
-        case "completed": return .green
-        case "overdue": return .red
-        default: return .blue
+        case "completed": return LisnColors.success
+        case "overdue": return LisnColors.error
+        default: return LisnColors.accent
         }
     }
 
@@ -348,14 +355,14 @@ struct CommitmentRow: View {
 
     private func dueDateColor(_ dateString: String) -> Color {
         let formatter = ISO8601DateFormatter()
-        guard let date = formatter.date(from: dateString) else { return .secondary }
+        guard let date = formatter.date(from: dateString) else { return LisnColors.textSecondary }
 
         if date < Date() && commitment.status != "completed" {
-            return .red
+            return LisnColors.error
         } else if Calendar.current.isDateInToday(date) {
-            return .orange
+            return LisnColors.warning
         }
-        return .secondary
+        return LisnColors.textSecondary
     }
 }
 
@@ -370,71 +377,61 @@ struct CommitmentDetailSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: LisnSpacing.xl) {
                     // Header
-                    VStack(spacing: 12) {
+                    VStack(spacing: LisnSpacing.sm) {
                         Image(systemName: typeIcon)
                             .font(.system(size: 48))
                             .foregroundColor(typeColor)
 
                         Text(commitment.description)
-                            .font(.title2)
+                            .font(LisnFont.titleLarge())
                             .fontWeight(.semibold)
                             .multilineTextAlignment(.center)
 
-                        HStack(spacing: 12) {
-                            Label(commitment.type.capitalized, systemImage: typeIcon)
-                                .font(.caption)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 4)
-                                .background(typeColor.opacity(0.2))
-                                .foregroundColor(typeColor)
-                                .cornerRadius(12)
+                        HStack(spacing: LisnSpacing.sm) {
+                            LisnChip(
+                                text: commitment.type.capitalized,
+                                icon: typeIcon,
+                                color: typeColor
+                            )
 
-                            Label(commitment.urgency.capitalized, systemImage: urgencyIcon)
-                                .font(.caption)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 4)
-                                .background(urgencyColor.opacity(0.2))
-                                .foregroundColor(urgencyColor)
-                                .cornerRadius(12)
+                            LisnChip(
+                                text: commitment.urgency.capitalized,
+                                icon: urgencyIcon,
+                                color: urgencyColor
+                            )
                         }
                     }
                     .padding(.top)
 
                     // Details
-                    VStack(alignment: .leading, spacing: 16) {
-                        if let person = commitment.person {
-                            DetailRow(icon: "person.fill", title: "Person", value: person)
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: LisnSpacing.md) {
+                            if let person = commitment.person {
+                                DetailRow(icon: "person.fill", title: "Person", value: person)
+                            }
+
+                            if let dueDate = commitment.dueDate {
+                                DetailRow(icon: "calendar", title: "Due Date", value: formattedDate(dueDate))
+                            }
+
+                            DetailRow(icon: "clock.fill", title: "Created", value: formattedDate(commitment.createdAt))
+
+                            DetailRow(icon: "flag.fill", title: "Status", value: commitment.status.capitalized)
                         }
-
-                        if let dueDate = commitment.dueDate {
-                            DetailRow(icon: "calendar", title: "Due Date", value: formattedDate(dueDate))
-                        }
-
-                        DetailRow(icon: "clock.fill", title: "Created", value: formattedDate(commitment.createdAt))
-
-                        DetailRow(icon: "flag.fill", title: "Status", value: commitment.status.capitalized)
                     }
-                    .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
 
                     Spacer()
 
                     // Actions
                     if commitment.status != "completed" {
-                        Button(action: onComplete) {
-                            HStack {
-                                Image(systemName: "checkmark.circle.fill")
-                                Text("Mark as Complete")
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.green)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                        }
+                        LisnButton(
+                            title: "Mark as Complete",
+                            icon: "checkmark.circle.fill",
+                            style: .primary,
+                            action: onComplete
+                        )
                     }
                 }
                 .padding()
@@ -462,10 +459,10 @@ struct CommitmentDetailSheet: View {
 
     private var typeColor: Color {
         switch commitment.type.lowercased() {
-        case "call": return .green
+        case "call": return LisnColors.success
         case "meeting": return .purple
-        case "task": return .blue
-        case "follow_up": return .orange
+        case "task": return LisnColors.accent
+        case "follow_up": return LisnColors.warning
         case "delivery": return .cyan
         default: return .yellow
         }
@@ -482,10 +479,10 @@ struct CommitmentDetailSheet: View {
 
     private var urgencyColor: Color {
         switch commitment.urgency.lowercased() {
-        case "high": return .red
-        case "medium": return .orange
-        case "low": return .blue
-        default: return .secondary
+        case "high": return LisnColors.error
+        case "medium": return LisnColors.warning
+        case "low": return LisnColors.accent
+        default: return LisnColors.textSecondary
         }
     }
 
@@ -510,15 +507,17 @@ struct DetailRow: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(.secondary)
+                .foregroundColor(LisnColors.textSecondary)
                 .frame(width: 24)
 
             Text(title)
-                .foregroundColor(.secondary)
+                .font(LisnFont.bodyMedium())
+                .foregroundColor(LisnColors.textSecondary)
 
             Spacer()
 
             Text(value)
+                .font(LisnFont.bodyMedium())
                 .fontWeight(.medium)
         }
     }

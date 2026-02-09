@@ -26,11 +26,13 @@ struct ChatView: View {
             // Input bar
             inputBar
         }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("Chat")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+        .background(LisnColors.bgPrimary)
+        .safeAreaInset(edge: .top) {
+            HStack {
+                Text("Chat")
+                    .font(.system(size: 34, weight: .bold))
+                    .foregroundColor(LisnColors.textPrimary)
+                Spacer()
                 Menu {
                     Button(role: .destructive, action: {
                         chatService.clearHistory()
@@ -39,8 +41,14 @@ struct ChatView: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(LisnColors.textSecondary)
                 }
             }
+            .padding(.horizontal)
+            .padding(.top, LisnSpacing.sm)
+            .padding(.bottom, LisnSpacing.xs)
+            .background(.regularMaterial)
         }
         .onAppear {
             chatService.loadHistory()
@@ -55,17 +63,17 @@ struct ChatView: View {
     private var messagesScrollView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 2) {
+                LazyVStack(spacing: LisnSpacing.xxxs) {
                     if chatService.messages.isEmpty && !chatService.isLoading {
                         emptyStateView
-                            .padding(.top, 40)
+                            .padding(.top, LisnSpacing.xxxl)
                     } else {
                         // Group messages by date
                         ForEach(groupedMessages, id: \.date) { group in
                             // Date header
                             DateHeader(date: group.date)
-                                .padding(.top, 16)
-                                .padding(.bottom, 8)
+                                .padding(.top, LisnSpacing.md)
+                                .padding(.bottom, LisnSpacing.xs)
 
                             // Messages for this date
                             ForEach(group.messages, id: \.id) { message in
@@ -84,8 +92,8 @@ struct ChatView: View {
                                 TypingIndicator()
                                 Spacer()
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
+                            .padding(.horizontal, LisnSpacing.md)
+                            .padding(.top, LisnSpacing.xs)
                             .id("typing")
                         }
 
@@ -95,7 +103,7 @@ struct ChatView: View {
                             .id("bottom")
                     }
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, LisnSpacing.xs)
             }
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom)
@@ -138,45 +146,39 @@ struct ChatView: View {
     // MARK: - Empty State
 
     private var emptyStateView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: LisnSpacing.lg) {
             // Icon
             ZStack {
                 Circle()
-                    .fill(Color.blue.opacity(0.1))
+                    .fill(LisnColors.bgSecondary)
                     .frame(width: 80, height: 80)
 
-                Image(systemName: "bubble.left.and.bubble.right.fill")
+                Image(systemName: "bubble.left.and.bubble.right")
                     .font(.system(size: 32))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.blue, .purple],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .foregroundColor(LisnColors.accent)
             }
 
-            VStack(spacing: 8) {
+            VStack(spacing: LisnSpacing.xs) {
                 Text("Ask About Your Memories")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                    .font(LisnFont.titleLarge())
+                    .foregroundColor(LisnColors.textPrimary)
 
                 Text("I can search through your conversations, recall specific moments, and help you remember important details.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(LisnFont.bodyMedium())
+                    .foregroundColor(LisnColors.textSecondary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, LisnSpacing.xxl)
             }
 
             // Suggestion chips
             VStack(spacing: 10) {
                 Text("Try asking:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(LisnFont.caption())
+                    .foregroundColor(LisnColors.textSecondary)
                     .textCase(.uppercase)
                     .tracking(0.5)
 
-                FlowLayout(spacing: 8) {
+                FlowLayout(spacing: LisnSpacing.xs) {
                     SuggestionChip(text: "What happened yesterday?") {
                         sendSuggestion("What happened yesterday?")
                     }
@@ -190,11 +192,11 @@ struct ChatView: View {
                         sendSuggestion("Find conversations about work")
                     }
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, LisnSpacing.xl)
             }
-            .padding(.top, 8)
+            .padding(.top, LisnSpacing.xs)
         }
-        .padding(.vertical, 40)
+        .padding(.vertical, LisnSpacing.xxxl)
     }
 
     private func sendSuggestion(_ text: String) {
@@ -205,13 +207,13 @@ struct ChatView: View {
     // MARK: - Error Banner
 
     private func errorBanner(_ error: String) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: LisnSpacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.orange)
+                .foregroundColor(LisnColors.warning)
 
             Text(error)
-                .font(.subheadline)
-                .foregroundColor(.primary)
+                .font(LisnFont.bodyMedium())
+                .foregroundColor(LisnColors.textPrimary)
 
             Spacer()
 
@@ -221,52 +223,55 @@ struct ChatView: View {
                 }
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.secondary)
+                    .foregroundColor(LisnColors.textSecondary)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color.orange.opacity(0.15))
+        .padding(.horizontal, LisnSpacing.md)
+        .padding(.vertical, LisnSpacing.sm)
+        .background(LisnColors.warning.opacity(0.15))
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     // MARK: - Input Bar
 
     private var inputBar: some View {
-        VStack(spacing: 0) {
-            Divider()
+        HStack(alignment: .bottom, spacing: LisnSpacing.sm) {
+            // Text field
+            HStack(alignment: .bottom, spacing: LisnSpacing.xs) {
+                TextField("Message...", text: $inputText, axis: .vertical)
+                    .font(LisnFont.bodyLarge())
+                    .textFieldStyle(.plain)
+                    .focused($isInputFocused)
+                    .lineLimit(1...6)
+                    .padding(.vertical, 10)
+                    .padding(.leading, LisnSpacing.md)
 
-            HStack(alignment: .bottom, spacing: 12) {
-                // Text field
-                HStack(alignment: .bottom, spacing: 8) {
-                    TextField("Message...", text: $inputText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .focused($isInputFocused)
-                        .lineLimit(1...6)
-                        .padding(.vertical, 10)
-                        .padding(.leading, 16)
-
-                    // Send button inside the field
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(
-                                inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chatService.isLoading
-                                ? Color.gray.opacity(0.5)
-                                : Color.blue
-                            )
-                    }
-                    .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chatService.isLoading)
-                    .padding(.trailing, 6)
-                    .padding(.bottom, 6)
+                // Send button inside the field
+                Button(action: sendMessage) {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(
+                            inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chatService.isLoading
+                            ? Color.gray.opacity(0.5)
+                            : LisnColors.accent
+                        )
                 }
-                .background(Color(.systemGray6))
-                .clipShape(RoundedRectangle(cornerRadius: 22))
+                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chatService.isLoading)
+                .padding(.trailing, 10)
+                .padding(.bottom, 10)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color(.systemBackground))
+            .background(LisnColors.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .shadow(
+                color: LisnShadow.md.color,
+                radius: LisnShadow.md.radius,
+                x: LisnShadow.md.x,
+                y: LisnShadow.md.y
+            )
         }
+        .padding(.horizontal, LisnSpacing.md)
+        .padding(.vertical, LisnSpacing.sm)
+        .background(LisnColors.bgPrimary)
     }
 
     // MARK: - Actions
@@ -274,6 +279,8 @@ struct ChatView: View {
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+
+        LisnHaptics.light()
 
         withAnimation(.easeOut(duration: 0.2)) {
             inputText = ""
@@ -318,13 +325,9 @@ struct DateHeader: View {
 
     var body: some View {
         Text(dateText)
-            .font(.caption)
-            .fontWeight(.medium)
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color(.systemGray5).opacity(0.8))
-            .clipShape(Capsule())
+            .font(LisnFont.caption())
+            .foregroundColor(LisnColors.textTertiary)
+            .frame(maxWidth: .infinity)
     }
 }
 
@@ -333,99 +336,76 @@ struct DateHeader: View {
 struct MessageBubble: View {
     let message: ChatMessage
 
+    private var bubbleShape: UnevenRoundedRectangle {
+        if message.isUser {
+            UnevenRoundedRectangle(
+                topLeadingRadius: 20,
+                bottomLeadingRadius: 20,
+                bottomTrailingRadius: 4,
+                topTrailingRadius: 20
+            )
+        } else {
+            UnevenRoundedRectangle(
+                topLeadingRadius: 4,
+                bottomLeadingRadius: 20,
+                bottomTrailingRadius: 20,
+                topTrailingRadius: 20
+            )
+        }
+    }
+
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .bottom, spacing: LisnSpacing.xs) {
             if message.isUser {
                 Spacer(minLength: 50)
             } else {
                 // AI Avatar
                 Circle()
-                    .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .fill(LisnColors.bgElevated)
                     .frame(width: 28, height: 28)
                     .overlay(
                         Image(systemName: "sparkles")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(LisnColors.accent)
+                    )
+                    .shadow(
+                        color: LisnShadow.sm.color,
+                        radius: LisnShadow.sm.radius,
+                        x: LisnShadow.sm.x,
+                        y: LisnShadow.sm.y
                     )
             }
 
-            VStack(alignment: message.isUser ? .trailing : .leading, spacing: 4) {
+            VStack(alignment: message.isUser ? .trailing : .leading, spacing: LisnSpacing.xxs) {
                 // Message content
                 Text(message.content)
-                    .font(.body)
+                    .font(LisnFont.bodyLarge())
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(
-                        message.isUser
-                        ? LinearGradient(colors: [.blue, .blue.opacity(0.9)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        : LinearGradient(colors: [Color(.systemGray5), Color(.systemGray5)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .background(message.isUser ? LisnColors.accent : LisnColors.bgElevated)
+                    .foregroundColor(message.isUser ? .white : LisnColors.textPrimary)
+                    .clipShape(bubbleShape)
+                    .shadow(
+                        color: LisnShadow.sm.color,
+                        radius: LisnShadow.sm.radius,
+                        x: LisnShadow.sm.x,
+                        y: LisnShadow.sm.y
                     )
-                    .foregroundColor(message.isUser ? .white : .primary)
-                    .clipShape(ChatBubbleShape(isUser: message.isUser))
 
                 // Timestamp
                 Text(message.formattedTime)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 4)
+                    .font(LisnFont.labelSmall())
+                    .foregroundColor(LisnColors.textTertiary)
+                    .padding(.horizontal, LisnSpacing.xxs)
             }
 
             if !message.isUser {
                 Spacer(minLength: 50)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-    }
-}
-
-// MARK: - Chat Bubble Shape
-
-struct ChatBubbleShape: Shape {
-    let isUser: Bool
-
-    func path(in rect: CGRect) -> Path {
-        let radius: CGFloat = 18
-        let tailSize: CGFloat = 6
-
-        var path = Path()
-
-        if isUser {
-            // User bubble - tail on right
-            path.addRoundedRect(
-                in: CGRect(x: 0, y: 0, width: rect.width - tailSize, height: rect.height),
-                cornerSize: CGSize(width: radius, height: radius)
-            )
-            // Small tail
-            path.move(to: CGPoint(x: rect.width - tailSize, y: rect.height - 20))
-            path.addQuadCurve(
-                to: CGPoint(x: rect.width, y: rect.height - 8),
-                control: CGPoint(x: rect.width - tailSize + 4, y: rect.height - 12)
-            )
-            path.addQuadCurve(
-                to: CGPoint(x: rect.width - tailSize, y: rect.height - 4),
-                control: CGPoint(x: rect.width - 2, y: rect.height - 4)
-            )
-        } else {
-            // AI bubble - tail on left
-            path.addRoundedRect(
-                in: CGRect(x: tailSize, y: 0, width: rect.width - tailSize, height: rect.height),
-                cornerSize: CGSize(width: radius, height: radius)
-            )
-            // Small tail
-            path.move(to: CGPoint(x: tailSize, y: rect.height - 20))
-            path.addQuadCurve(
-                to: CGPoint(x: 0, y: rect.height - 8),
-                control: CGPoint(x: tailSize - 4, y: rect.height - 12)
-            )
-            path.addQuadCurve(
-                to: CGPoint(x: tailSize, y: rect.height - 4),
-                control: CGPoint(x: 2, y: rect.height - 4)
-            )
-        }
-
-        return path
+        .padding(.horizontal, LisnSpacing.sm)
+        .padding(.vertical, LisnSpacing.xxs)
     }
 }
 
@@ -438,16 +418,22 @@ struct TypingIndicator: View {
         HStack(spacing: 5) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
-                    .fill(Color.secondary)
+                    .fill(LisnColors.textTertiary)
                     .frame(width: 8, height: 8)
                     .scaleEffect(scale(for: index))
                     .opacity(opacity(for: index))
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, LisnSpacing.md)
         .padding(.vertical, 14)
-        .background(Color(.systemGray5))
-        .clipShape(ChatBubbleShape(isUser: false))
+        .background(LisnColors.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(
+            color: LisnShadow.sm.color,
+            radius: LisnShadow.sm.radius,
+            x: LisnShadow.sm.x,
+            y: LisnShadow.sm.y
+        )
         .onAppear {
             withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
                 phase = 1
@@ -477,16 +463,12 @@ struct SuggestionChip: View {
     var body: some View {
         Button(action: action) {
             Text(text)
-                .font(.subheadline)
+                .font(LisnFont.bodyMedium())
                 .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Color.blue.opacity(0.1))
-                .foregroundColor(.blue)
+                .padding(.vertical, LisnSpacing.xs)
+                .background(LisnColors.bgSecondary)
+                .foregroundColor(LisnColors.textPrimary)
                 .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(Color.blue.opacity(0.3), lineWidth: 1)
-                )
         }
         .buttonStyle(.plain)
     }

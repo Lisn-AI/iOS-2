@@ -6,6 +6,7 @@ struct HomeView: View {
     @EnvironmentObject var recordingManager: RecordingManager
     @EnvironmentObject var locationManager: LocationManager
     @Environment(\.modelContext) private var modelContext
+    @Binding var showSettings: Bool
     @State private var isRecording = false
     @State private var showPermissionAlert = false
     @State private var showMemorySearch = false
@@ -15,42 +16,52 @@ struct HomeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Custom top bar
+            topBar
+                .padding(.horizontal, LisnSpacing.md)
+                .padding(.top, LisnSpacing.sm)
+
             // Quick Actions Row
             quickActionsRow
-                .padding(.horizontal)
-                .padding(.top, 8)
-
-            // Status Card
-            statusCard
-                .padding()
+                .padding(.horizontal, LisnSpacing.md)
+                .padding(.top, LisnSpacing.md)
 
             Spacer()
 
-            // Recording Button
-            recordingButton
-                .padding(.bottom, 40)
+            // Hero: Recording Orb
+            RecordingOrb(
+                isRecording: isRecording,
+                audioLevel: recordingManager.audioLevel,
+                isPaused: recordingManager.isPausedForCall,
+                action: toggleRecording
+            )
+
+            // Status Text (below orb)
+            statusLabel
+                .padding(.top, LisnSpacing.lg)
+
+            Spacer()
 
             // Processing Status
             if recordingManager.isProcessing {
                 processingView
-                    .padding(.horizontal)
-                    .padding(.bottom, 20)
+                    .padding(.horizontal, LisnSpacing.md)
+                    .padding(.bottom, LisnSpacing.lg)
             }
 
             // Recent Result Preview
             if !recordingManager.summary.isEmpty && !recordingManager.isProcessing {
                 recentResultPreview
-                    .padding(.horizontal)
-                    .padding(.bottom, 20)
+                    .padding(.horizontal, LisnSpacing.md)
+                    .padding(.bottom, LisnSpacing.lg)
             }
-
-            Spacer()
 
             // Bottom Stats
             bottomStats
-                .padding(.horizontal)
-                .padding(.bottom, 16)
+                .padding(.horizontal, LisnSpacing.md)
+                .padding(.bottom, LisnSpacing.md)
         }
+        .background(LisnColors.bgPrimary)
         .alert("Microphone Permission Required", isPresented: $showPermissionAlert) {
             Button("Open Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -69,7 +80,6 @@ struct HomeView: View {
         }
         .onAppear {
             locationManager.requestPermissions()
-            // Pass modelContext to RecordingManager for SwiftData persistence
             recordingManager.modelContext = modelContext
         }
         .task {
@@ -77,56 +87,135 @@ struct HomeView: View {
         }
     }
 
+    // MARK: - Top Bar
+
+    private var topBar: some View {
+        ZStack {
+            // Centered logo
+            Text("Lisnai")
+                .font(LisnFont.titleLarge())
+                .fontWeight(.bold)
+                .foregroundColor(LisnColors.textPrimary)
+
+            // Menu button pinned left
+            HStack {
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(LisnColors.textPrimary)
+                        .frame(width: 40, height: 40)
+                        .background(LisnColors.bgSecondary)
+                        .clipShape(Circle())
+                }
+
+                Spacer()
+            }
+        }
+    }
+
     // MARK: - Quick Actions Row
 
     private var quickActionsRow: some View {
-        HStack(spacing: 12) {
-            // Search Button
-            Button(action: { showMemorySearch = true }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                    Text("Search")
-                }
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundColor(.blue)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Color.blue.opacity(0.1))
-                .cornerRadius(20)
-            }
+        HStack(spacing: LisnSpacing.sm) {
+            LisnChip(
+                text: "Search",
+                icon: "magnifyingglass",
+                color: LisnColors.accent,
+                action: { showMemorySearch = true }
+            )
 
-            // Today's Briefing Button
-            Button(action: { showTodayBriefing = true }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "sun.haze")
-                    Text("Briefing")
-                }
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundColor(.orange)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Color.orange.opacity(0.1))
-                .cornerRadius(20)
-            }
+            LisnChip(
+                text: "Briefing",
+                icon: "sun.haze",
+                color: LisnColors.accent,
+                action: { showTodayBriefing = true }
+            )
 
             Spacer()
 
             // Pending Actions Badge
             if pendingActionsCount > 0 || pendingSuggestionsCount > 0 {
-                HStack(spacing: 4) {
-                    Image(systemName: "bolt.fill")
-                        .font(.caption)
+                HStack(spacing: LisnSpacing.xxs) {
+                    Image(systemName: "bolt")
+                        .font(LisnFont.caption())
                     Text("\(pendingActionsCount + pendingSuggestionsCount)")
-                        .font(.caption)
-                        .fontWeight(.bold)
+                        .font(LisnFont.captionBold())
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.red)
-                .cornerRadius(12)
+                .padding(.horizontal, LisnSpacing.xs + 2)
+                .padding(.vertical, LisnSpacing.xxs + 2)
+                .background(LisnColors.error)
+                .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+            }
+        }
+    }
+
+    // MARK: - Status Label
+
+    private var statusLabel: some View {
+        VStack(spacing: LisnSpacing.xxs) {
+            Text(statusText)
+                .font(LisnFont.titleSmall())
+                .foregroundColor(LisnColors.textPrimary)
+
+            if isRecording {
+                Text(recordingManager.recordingDuration)
+                    .font(LisnFont.mono())
+                    .foregroundColor(LisnColors.textSecondary)
+
+                if recordingManager.isPausedForCall {
+                    Text("Will resume when call ends")
+                        .font(LisnFont.caption())
+                        .foregroundColor(LisnColors.paused)
+                        .padding(.top, LisnSpacing.xxs)
+                }
+            }
+        }
+    }
+
+    // MARK: - Processing View
+
+    private var processingView: some View {
+        GlassCard {
+            HStack(spacing: LisnSpacing.sm) {
+                ProgressView()
+                    .tint(LisnColors.accent)
+
+                VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
+                    Text("Processing recording...")
+                        .font(LisnFont.labelLarge())
+                        .foregroundColor(LisnColors.textPrimary)
+
+                    Text("Transcribing and generating summary")
+                        .font(LisnFont.caption())
+                        .foregroundColor(LisnColors.textSecondary)
+                }
+
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - Recent Result Preview
+
+    private var recentResultPreview: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: LisnSpacing.sm) {
+                HStack {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundColor(LisnColors.success)
+                    Text("Recording saved")
+                        .font(LisnFont.labelLarge())
+                        .foregroundColor(LisnColors.textPrimary)
+                    Spacer()
+                }
+
+                Text(recordingManager.summary)
+                    .font(LisnFont.caption())
+                    .foregroundColor(LisnColors.textSecondary)
+                    .lineLimit(3)
             }
         }
     }
@@ -134,26 +223,28 @@ struct HomeView: View {
     // MARK: - Bottom Stats
 
     private var bottomStats: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: LisnSpacing.lg) {
             if pendingActionsCount > 0 {
-                Label("\(pendingActionsCount) actions", systemImage: "bolt.fill")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Label("\(pendingActionsCount) actions", systemImage: "bolt")
+                    .font(LisnFont.caption())
+                    .foregroundColor(LisnColors.textSecondary)
             }
 
             if pendingSuggestionsCount > 0 {
-                Label("\(pendingSuggestionsCount) suggestions", systemImage: "lightbulb.fill")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Label("\(pendingSuggestionsCount) suggestions", systemImage: "lightbulb")
+                    .font(LisnFont.caption())
+                    .foregroundColor(LisnColors.textSecondary)
             }
 
             if pendingActionsCount == 0 && pendingSuggestionsCount == 0 {
-                Label("All caught up!", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundColor(.green)
+                Label("All caught up!", systemImage: "checkmark.circle")
+                    .font(LisnFont.caption())
+                    .foregroundColor(LisnColors.success)
             }
         }
     }
+
+    // MARK: - Helpers
 
     private func loadPendingCounts() async {
         do {
@@ -164,139 +255,11 @@ struct HomeView: View {
             pendingActionsCount = actionsResponse.actions.count
             pendingSuggestionsCount = suggestionsResponse.suggestions.count
         } catch {
-            // Silently fail - not critical
             print("Failed to load pending counts: \(error)")
         }
     }
 
-    // MARK: - Subviews
-
-    private var statusCard: some View {
-        VStack(spacing: 16) {
-            // Status Icon
-            ZStack {
-                Circle()
-                    .fill(statusColor.opacity(0.2))
-                    .frame(width: 100, height: 100)
-
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: statusIcon)
-                    .font(.system(size: 35))
-                    .foregroundColor(.white)
-            }
-
-            // Status Text
-            VStack(spacing: 4) {
-                Text(statusText)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-
-                if isRecording {
-                    Text(recordingManager.recordingDuration)
-                        .font(.system(.title3, design: .monospaced))
-                        .foregroundColor(.secondary)
-
-                    if recordingManager.isPausedForCall {
-                        Text("Will resume when call ends")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .padding(.top, 4)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
-        .background(Color(.systemGray6))
-        .cornerRadius(20)
-    }
-
-    private var recordingButton: some View {
-        Button(action: toggleRecording) {
-            HStack(spacing: 12) {
-                Image(systemName: isRecording ? "stop.fill" : "mic.fill")
-                    .font(.title2)
-
-                Text(isRecording ? "Stop Recording" : "Start Recording")
-                    .font(.headline)
-            }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 60)
-            .background(isRecording ? Color.red : Color.blue)
-            .cornerRadius(16)
-        }
-        .padding(.horizontal, 30)
-        .shadow(color: (isRecording ? Color.red : Color.blue).opacity(0.3), radius: 10, y: 5)
-    }
-
-    private var processingView: some View {
-        HStack(spacing: 12) {
-            ProgressView()
-                .tint(.blue)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Processing recording...")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-
-                Text("Transcribing and generating summary")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-        }
-        .padding()
-        .background(Color.blue.opacity(0.1))
-        .cornerRadius(12)
-    }
-
-    private var recentResultPreview: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                Text("Recording saved")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                Spacer()
-            }
-
-            Text(recordingManager.summary)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(3)
-        }
-        .padding()
-        .background(Color.green.opacity(0.1))
-        .cornerRadius(12)
-    }
-
     // MARK: - Computed Properties
-
-    private var statusColor: Color {
-        if recordingManager.isPausedForCall {
-            return .orange
-        } else if isRecording {
-            return .red
-        } else {
-            return .gray
-        }
-    }
-
-    private var statusIcon: String {
-        if recordingManager.isPausedForCall {
-            return "phone.fill"
-        } else if isRecording {
-            return "waveform"
-        } else {
-            return "mic.slash.fill"
-        }
-    }
 
     private var statusText: String {
         if recordingManager.isPausedForCall {
@@ -312,15 +275,14 @@ struct HomeView: View {
 
     private func toggleRecording() {
         if isRecording {
+            LisnHaptics.success()
             recordingManager.stopRecording()
             isRecording = false
-
-            // Save to SwiftData after processing completes
-            // This will be handled in RecordingManager
         } else {
             Task {
                 let granted = await recordingManager.requestMicrophonePermission()
                 if granted {
+                    LisnHaptics.medium()
                     recordingManager.startRecording()
                     isRecording = true
                 } else {

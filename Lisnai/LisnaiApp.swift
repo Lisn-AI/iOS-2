@@ -17,7 +17,79 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Set up push notifications with enhanced service
         setupPushNotifications(application)
 
+        // Configure global UIKit appearance for theming
+        configureAppearance()
+
         return true
+    }
+
+    // MARK: - UIKit Appearance
+
+    private func configureAppearance() {
+        // Force light mode globally
+        for scene in UIApplication.shared.connectedScenes {
+            if let windowScene = scene as? UIWindowScene {
+                for window in windowScene.windows {
+                    window.overrideUserInterfaceStyle = .light
+                }
+            }
+        }
+
+        let bgPrimary = UIColor(named: "BGPrimary") ?? UIColor(red: 1.0, green: 0.992, blue: 0.969, alpha: 1.0)
+
+        // Tab bar - custom font, outline icons
+        let tabFont = UIFont.systemFont(ofSize: 10, weight: .bold)
+
+        let normalAttrs: [NSAttributedString.Key: Any] = [
+            .font: tabFont,
+            .foregroundColor: UIColor.tertiaryLabel
+        ]
+        let selectedAttrs: [NSAttributedString.Key: Any] = [
+            .font: tabFont,
+            .foregroundColor: UIColor.label
+        ]
+
+        let tabItemAppearance = UITabBarItemAppearance()
+        tabItemAppearance.normal.titleTextAttributes = normalAttrs
+        tabItemAppearance.normal.iconColor = UIColor.tertiaryLabel
+        tabItemAppearance.selected.titleTextAttributes = selectedAttrs
+        tabItemAppearance.selected.iconColor = UIColor.label
+
+        let tabBarAppearance = UITabBarAppearance()
+        tabBarAppearance.stackedLayoutAppearance = tabItemAppearance
+        UITabBar.appearance().standardAppearance = tabBarAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+
+        // Force outline (non-fill) icons in tab bar
+        let outlineConfig = UIImage.SymbolConfiguration(weight: .medium)
+            .applying(UIImage.SymbolConfiguration(paletteColors: [.label]))
+        UITabBar.appearance().itemPositioning = .fill
+
+        // Navigation bar - matches bgPrimary
+        let navBarAppearance = UINavigationBarAppearance()
+        navBarAppearance.configureWithOpaqueBackground()
+        navBarAppearance.backgroundColor = bgPrimary
+
+        if let interSemiBold17 = UIFont(name: "Inter-SemiBold", size: 17) {
+            navBarAppearance.titleTextAttributes = [
+                .font: interSemiBold17,
+                .foregroundColor: UIColor.label
+            ]
+        }
+        if let interBold34 = UIFont(name: "Inter-Bold", size: 34) {
+            navBarAppearance.largeTitleTextAttributes = [
+                .font: interBold34,
+                .foregroundColor: UIColor.label
+            ]
+        }
+
+        UINavigationBar.appearance().standardAppearance = navBarAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navBarAppearance
+        UINavigationBar.appearance().compactAppearance = navBarAppearance
+        UINavigationBar.appearance().tintColor = UIColor.label
+
+        // Clear table/list backgrounds so our bgPrimary shows through
+        UITableView.appearance().backgroundColor = .clear
     }
 
     // MARK: - Push Notifications Setup
@@ -133,6 +205,7 @@ extension Notification.Name {
     static let openCommitments = Notification.Name("openCommitments")
     static let openActions = Notification.Name("openActions")
     static let openSuggestions = Notification.Name("openSuggestions")
+    static let navigateToHome = Notification.Name("navigateToHome")
 }
 
 @main
@@ -169,6 +242,7 @@ struct LisnaiApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(.light)
                 .environmentObject(recordingManager)
                 .environmentObject(locationManager)
                 .environmentObject(authService)
