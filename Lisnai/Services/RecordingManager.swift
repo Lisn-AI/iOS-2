@@ -14,7 +14,6 @@ class RecordingManager: NSObject, ObservableObject {
     @Published var transcription = ""
     @Published var summary = ""
     @Published var isProcessing = false
-    @Published var audioLevel: CGFloat = 0
 
     /// ModelContext for saving to SwiftData (set from the view)
     var modelContext: ModelContext?
@@ -327,28 +326,8 @@ class RecordingManager: NSObject, ObservableObject {
             // Install tap on input node — writes audio buffers to the current file
             // The tap persists across engine stop/start cycles (interruptions)
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { [weak self] buffer, _ in
-                guard let self else { return }
-
-                // Compute RMS audio level for orb visualization
-                if let channelData = buffer.floatChannelData?[0] {
-                    let frameCount = Int(buffer.frameLength)
-                    var sumOfSquares: Float = 0
-                    for i in 0..<frameCount {
-                        let sample = channelData[i]
-                        sumOfSquares += sample * sample
-                    }
-                    let rms = sqrt(sumOfSquares / Float(max(frameCount, 1)))
-                    // Convert to 0–1 range (typical speech RMS ~0.01–0.1)
-                    let normalized = CGFloat(min(rms * 10, 1.0))
-
-                    Task { @MainActor in
-                        // Low-pass filter for smooth animation
-                        self.audioLevel = self.audioLevel * 0.7 + normalized * 0.3
-                    }
-                }
-
-                self.audioWriteQueue.async {
-                    try? self.currentAudioFile?.write(from: buffer)
+                self?.audioWriteQueue.async {
+                    try? self?.currentAudioFile?.write(from: buffer)
                 }
             }
 
@@ -401,28 +380,21 @@ class RecordingManager: NSObject, ObservableObject {
         isRecording = false
         isPausedForCall = false
         isSuspendedForInterruption = false
-        audioLevel = 0
         durationTimer?.invalidate()
         durationTimer = nil
 
         print("Recording stopped with \(recordingSegments.count) segment(s)")
 
-        // Capture final duration before resetting (include current segment time)
-        if let startTime = recordingStartTime {
-            elapsedTimeBeforePause += Date().timeIntervalSince(startTime)
+        // Process all segments
+        if !recordingSegments.isEmpty {
+            Task {
+                await processRecordingSegments()
+            }
         }
-        let capturedDuration = elapsedTimeBeforePause
 
         // Reset for next recording
         elapsedTimeBeforePause = 0
         recordingStartTime = nil
-
-        // Process all segments (uses capturedDuration)
-        if !recordingSegments.isEmpty {
-            Task {
-                await processRecordingSegments(duration: capturedDuration)
-            }
-        }
 
         // End Live Activity
         endRecordingLiveActivity()
@@ -500,7 +472,7 @@ class RecordingManager: NSObject, ObservableObject {
     }
 
     /// Process recording segments - merge if needed, then transcribe
-    private func processRecordingSegments(duration: TimeInterval) async {
+    private func processRecordingSegments() async {
         isProcessing = true
         transcription = "Processing recording segments..."
 
@@ -512,15 +484,16 @@ class RecordingManager: NSObject, ObservableObject {
         }
 
         lastRecordingURL = finalURL
-        await processRecording(fileURL: finalURL, duration: duration)
+        await processRecording(fileURL: finalURL)
     }
 
-    private func processRecording(fileURL: URL, duration: TimeInterval) async {
+    private func processRecording(fileURL: URL) async {
         isProcessing = true
         transcription = "Transcribing and identifying speakers..."
         summary = ""
 
-        let totalDuration = duration
+        // Calculate duration from elapsed time
+        let totalDuration = elapsedTimeBeforePause
         let date = recordingDate ?? Date()
 
         do {

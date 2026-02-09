@@ -9,52 +9,53 @@ struct LoginView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            VStack(spacing: LisnSpacing.md) {
+            VStack(spacing: 16) {
                 Spacer()
                     .frame(height: 60)
 
                 // App Icon/Logo
                 ZStack {
                     Circle()
-                        .fill(LisnColors.accent.opacity(0.1))
+                        .fill(Color.blue.opacity(0.1))
                         .frame(width: 100, height: 100)
 
                     Image(systemName: "waveform.circle.fill")
                         .font(.system(size: 60))
-                        .foregroundColor(LisnColors.accent)
+                        .foregroundColor(.blue)
                 }
 
                 // Title
                 Text("Lisnai")
-                    .font(LisnFont.displayLarge())
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
 
                 // Subtitle
                 Text("Your voice-powered memory")
-                    .font(LisnFont.titleMedium())
-                    .foregroundColor(LisnColors.textSecondary)
+                    .font(.title3)
+                    .foregroundColor(.secondary)
 
                 Spacer()
             }
             .frame(maxHeight: .infinity)
 
             // Sign In Buttons
-            VStack(spacing: LisnSpacing.md) {
+            VStack(spacing: 16) {
                 // Apple Sign In
                 Button(action: {
                     authService.signInWithApple()
                 }) {
-                    HStack(spacing: LisnSpacing.sm) {
+                    HStack(spacing: 12) {
                         Image(systemName: "apple.logo")
                             .font(.title2)
 
                         Text("Continue with Apple")
-                            .font(LisnFont.labelLarge())
+                            .font(.headline)
                     }
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
                     .background(Color.black)
-                    .cornerRadius(LisnRadius.pill)
+                    .cornerRadius(28)
                 }
 
                 // Google Sign In
@@ -69,43 +70,42 @@ struct LoginView: View {
                         }
                     }
                 }) {
-                    HStack(spacing: LisnSpacing.sm) {
+                    HStack(spacing: 12) {
                         // Google logo
                         Image(systemName: "g.circle.fill")
                             .font(.title2)
                             .foregroundColor(.red)
 
                         Text("Continue with Google")
-                            .font(LisnFont.labelLarge())
+                            .font(.headline)
                             .foregroundColor(.primary)
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
-                    .background(LisnColors.bgSecondary)
-                    .cornerRadius(LisnRadius.pill)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(28)
                     .overlay(
-                        RoundedRectangle(cornerRadius: LisnRadius.pill)
-                            .stroke(LisnColors.border, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 28)
+                            .stroke(Color(.systemGray4), lineWidth: 1)
                     )
                 }
 
                 // Loading indicator
                 if authService.isLoading {
                     ProgressView()
-                        .padding(.top, LisnSpacing.xs)
+                        .padding(.top, 8)
                 }
 
                 // Terms
                 Text("By continuing, you agree to our Terms of Service and Privacy Policy")
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textTertiary)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
-                    .padding(.top, LisnSpacing.md)
+                    .padding(.top, 16)
             }
-            .padding(.horizontal, LisnSpacing.xl)
-            .padding(.bottom, LisnSpacing.xxxl)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 40)
         }
-        .background(LisnColors.bgPrimary)
         .alert("Sign In Error", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -158,18 +158,17 @@ struct OnboardingView: View {
                     // Navigate to login
                 }) {
                     Text("Get Started")
-                        .font(LisnFont.labelLarge())
+                        .font(.headline)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .background(LisnColors.accent)
-                        .cornerRadius(LisnRadius.pill)
+                        .background(Color.blue)
+                        .cornerRadius(28)
                 }
-                .padding(.horizontal, LisnSpacing.xl)
-                .padding(.bottom, LisnSpacing.xxxl)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 40)
             }
         }
-        .background(LisnColors.bgPrimary)
     }
 }
 
@@ -183,28 +182,29 @@ struct OnboardingPageView: View {
     let page: OnboardingPage
 
     var body: some View {
-        VStack(spacing: LisnSpacing.xl) {
+        VStack(spacing: 24) {
             Spacer()
 
             ZStack {
                 Circle()
-                    .fill(LisnColors.accent.opacity(0.1))
+                    .fill(Color.blue.opacity(0.1))
                     .frame(width: 120, height: 120)
 
                 Image(systemName: page.icon)
                     .font(.system(size: 50))
-                    .foregroundColor(LisnColors.accent)
+                    .foregroundColor(.blue)
             }
 
             Text(page.title)
-                .font(LisnFont.titleLarge())
+                .font(.title)
+                .fontWeight(.bold)
                 .multilineTextAlignment(.center)
 
             Text(page.description)
-                .font(LisnFont.bodyMedium())
-                .foregroundColor(LisnColors.textSecondary)
+                .font(.body)
+                .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, LisnSpacing.xxxl)
+                .padding(.horizontal, 40)
 
             Spacer()
             Spacer()

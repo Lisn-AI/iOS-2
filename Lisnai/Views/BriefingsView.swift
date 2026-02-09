@@ -9,7 +9,7 @@ struct BriefingsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: LisnSpacing.lg) {
+                VStack(spacing: 20) {
                     // Date selector
                     dateSelector
 
@@ -23,7 +23,6 @@ struct BriefingsView: View {
                 }
                 .padding()
             }
-            .background(LisnColors.bgPrimary)
             .navigationTitle("Daily Briefing")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -50,55 +49,56 @@ struct BriefingsView: View {
     // MARK: - Date Selector
 
     private var dateSelector: some View {
-        GlassCard {
-            HStack {
-                Button(action: {
-                    selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
-                }) {
-                    Image(systemName: "chevron.left")
-                        .font(LisnFont.titleLarge())
-                        .foregroundColor(LisnColors.accent)
-                }
-
-                Spacer()
-
-                Button(action: { showDatePicker = true }) {
-                    VStack(spacing: 2) {
-                        Text(formattedDate(selectedDate))
-                            .font(LisnFont.titleMedium())
-                            .fontWeight(.semibold)
-
-                        if Calendar.current.isDateInToday(selectedDate) {
-                            Text("Today")
-                                .font(LisnFont.caption())
-                                .foregroundColor(LisnColors.accent)
-                        } else if Calendar.current.isDateInYesterday(selectedDate) {
-                            Text("Yesterday")
-                                .font(LisnFont.caption())
-                                .foregroundColor(LisnColors.textSecondary)
-                        }
-                    }
-                }
-                .foregroundColor(LisnColors.textPrimary)
-                .sheet(isPresented: $showDatePicker) {
-                    DatePickerSheet(selectedDate: $selectedDate)
-                }
-
-                Spacer()
-
-                Button(action: {
-                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                    if tomorrow <= Date() {
-                        selectedDate = tomorrow
-                    }
-                }) {
-                    Image(systemName: "chevron.right")
-                        .font(LisnFont.titleLarge())
-                        .foregroundColor(canGoForward ? LisnColors.accent : .gray)
-                }
-                .disabled(!canGoForward)
+        HStack {
+            Button(action: {
+                selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+            }) {
+                Image(systemName: "chevron.left")
+                    .font(.title2)
+                    .foregroundColor(.blue)
             }
+
+            Spacer()
+
+            Button(action: { showDatePicker = true }) {
+                VStack(spacing: 2) {
+                    Text(formattedDate(selectedDate))
+                        .font(.title3)
+                        .fontWeight(.semibold)
+
+                    if Calendar.current.isDateInToday(selectedDate) {
+                        Text("Today")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                    } else if Calendar.current.isDateInYesterday(selectedDate) {
+                        Text("Yesterday")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .foregroundColor(.primary)
+            .sheet(isPresented: $showDatePicker) {
+                DatePickerSheet(selectedDate: $selectedDate)
+            }
+
+            Spacer()
+
+            Button(action: {
+                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                if tomorrow <= Date() {
+                    selectedDate = tomorrow
+                }
+            }) {
+                Image(systemName: "chevron.right")
+                    .font(.title2)
+                    .foregroundColor(canGoForward ? .blue : .gray)
+            }
+            .disabled(!canGoForward)
         }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
     }
 
     private var canGoForward: Bool {
@@ -115,13 +115,13 @@ struct BriefingsView: View {
     // MARK: - Loading View
 
     private var loadingView: some View {
-        VStack(spacing: LisnSpacing.md) {
+        VStack(spacing: 16) {
             ProgressView()
                 .scaleEffect(1.5)
 
             Text("Generating briefing...")
-                .font(LisnFont.bodyMedium())
-                .foregroundColor(LisnColors.textSecondary)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, minHeight: 300)
     }
@@ -129,20 +129,37 @@ struct BriefingsView: View {
     // MARK: - Empty State
 
     private var emptyStateView: some View {
-        LisnEmptyState(
-            icon: "sun.haze",
-            title: "No Briefing Available",
-            subtitle: "Start recording conversations to generate daily briefings",
-            actionTitle: "Generate Briefing",
-            action: { Task { await viewModel.triggerBriefing() } }
-        )
+        VStack(spacing: 16) {
+            Image(systemName: "sun.haze")
+                .font(.system(size: 64))
+                .foregroundColor(.orange)
+
+            Text("No Briefing Available")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Text("Start recording conversations to generate daily briefings")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button(action: { Task { await viewModel.triggerBriefing() } }) {
+                Label("Generate Briefing", systemImage: "sparkles")
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+            }
+            .padding(.top)
+        }
+        .padding()
     }
 
     // MARK: - Briefing Content
 
     @ViewBuilder
     private func briefingContent(_ briefing: BriefingResponse) -> some View {
-        VStack(spacing: LisnSpacing.lg) {
+        VStack(spacing: 20) {
             // Summary Card
             summaryCard(briefing)
 
@@ -169,129 +186,145 @@ struct BriefingsView: View {
     }
 
     private func summaryCard(_ briefing: BriefingResponse) -> some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-                HStack {
-                    Image(systemName: moodIcon(briefing.mood))
-                        .font(LisnFont.titleLarge())
-                        .foregroundColor(moodColor(briefing.mood))
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: moodIcon(briefing.mood))
+                    .font(.title2)
+                    .foregroundColor(moodColor(briefing.mood))
 
-                    Text("Summary")
-                        .font(LisnFont.titleSmall())
+                Text("Summary")
+                    .font(.headline)
 
-                    Spacer()
+                Spacer()
 
-                    if let mood = briefing.mood {
-                        Text(mood.capitalized)
-                            .font(LisnFont.caption())
-                            .padding(.horizontal, LisnSpacing.xs)
-                            .padding(.vertical, 4)
-                            .background(moodColor(briefing.mood).opacity(0.2))
-                            .cornerRadius(LisnRadius.sm)
-                    }
+                if let mood = briefing.mood {
+                    Text(mood.capitalized)
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(moodColor(briefing.mood).opacity(0.2))
+                        .cornerRadius(8)
                 }
-
-                Text(briefing.summary)
-                    .font(LisnFont.bodyLarge())
-                    .foregroundColor(LisnColors.textSecondary)
             }
+
+            Text(briefing.summary)
+                .font(.body)
+                .foregroundColor(.secondary)
         }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
     }
 
     private func keyMomentsCard(_ moments: [String]) -> some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-                HStack {
-                    Image(systemName: "star.fill")
-                        .foregroundColor(.yellow)
-                    Text("Key Moments")
-                        .font(LisnFont.titleSmall())
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "star.fill")
+                    .foregroundColor(.yellow)
+                Text("Key Moments")
+                    .font(.headline)
+            }
 
-                VStack(alignment: .leading, spacing: LisnSpacing.xs) {
-                    ForEach(moments.indices, id: \.self) { index in
-                        HStack(alignment: .top, spacing: LisnSpacing.xs) {
-                            Text("\(index + 1)")
-                                .font(LisnFont.captionBold())
-                                .foregroundColor(.white)
-                                .frame(width: 20, height: 20)
-                                .background(LisnColors.accent)
-                                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(moments.indices, id: \.self) { index in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("\(index + 1)")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .frame(width: 20, height: 20)
+                            .background(Color.blue)
+                            .clipShape(Circle())
 
-                            Text(moments[index])
-                                .font(LisnFont.bodyMedium())
-                                .foregroundColor(LisnColors.textSecondary)
-                        }
+                        Text(moments[index])
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
                     }
                 }
             }
         }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
     }
 
     private func peopleCard(_ people: [String]) -> some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-                HStack {
-                    Image(systemName: "person.2.fill")
-                        .foregroundColor(LisnColors.accent)
-                    Text("People You Interacted With")
-                        .font(LisnFont.titleSmall())
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "person.2.fill")
+                    .foregroundColor(.blue)
+                Text("People You Interacted With")
+                    .font(.headline)
+            }
 
-                FlowLayout(spacing: LisnSpacing.xs) {
-                    ForEach(people, id: \.self) { person in
-                        LisnChip(text: person, icon: "person.fill", color: LisnColors.accent)
-                    }
+            FlowLayout(spacing: 8) {
+                ForEach(people, id: \.self) { person in
+                    Label(person, systemImage: "person.fill")
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.blue.opacity(0.1))
+                        .foregroundColor(.blue)
+                        .cornerRadius(16)
                 }
             }
         }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
     }
 
     private func tasksCard(_ tasks: [String]) -> some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-                HStack {
-                    Image(systemName: "checklist")
-                        .foregroundColor(LisnColors.warning)
-                    Text("Pending Tasks")
-                        .font(LisnFont.titleSmall())
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "checklist")
+                    .foregroundColor(.orange)
+                Text("Pending Tasks")
+                    .font(.headline)
+            }
 
-                VStack(alignment: .leading, spacing: LisnSpacing.xs) {
-                    ForEach(tasks, id: \.self) { task in
-                        HStack(alignment: .top, spacing: LisnSpacing.xs) {
-                            Image(systemName: "circle")
-                                .font(LisnFont.caption())
-                                .foregroundColor(LisnColors.warning)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(tasks, id: \.self) { task in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "circle")
+                            .font(.caption)
+                            .foregroundColor(.orange)
 
-                            Text(task)
-                                .font(LisnFont.bodyMedium())
-                                .foregroundColor(LisnColors.textSecondary)
-                        }
+                        Text(task)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
                     }
                 }
             }
         }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
     }
 
     private func insightCard(_ insight: String) -> some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-                HStack {
-                    Image(systemName: "lightbulb.fill")
-                        .foregroundColor(.yellow)
-                    Text("Insight")
-                        .font(LisnFont.titleSmall())
-                }
-
-                Text(insight)
-                    .font(LisnFont.bodyLarge())
-                    .italic()
-                    .foregroundColor(LisnColors.textSecondary)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "lightbulb.fill")
+                    .foregroundColor(.yellow)
+                Text("Insight")
+                    .font(.headline)
             }
+
+            Text(insight)
+                .font(.body)
+                .italic()
+                .foregroundColor(.secondary)
         }
-        .background(LisnColors.accent.opacity(0.08))
-        .cornerRadius(LisnRadius.md)
+        .padding()
+        .background(
+            LinearGradient(
+                colors: [Color.yellow.opacity(0.1), Color.orange.opacity(0.1)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .cornerRadius(12)
     }
 
     private func moodIcon(_ mood: String?) -> String {
@@ -307,12 +340,12 @@ struct BriefingsView: View {
 
     private func moodColor(_ mood: String?) -> Color {
         switch mood?.lowercased() {
-        case "happy", "positive", "joyful": return LisnColors.success
-        case "sad", "negative", "down": return LisnColors.info
-        case "stressed", "anxious": return LisnColors.error
-        case "productive", "focused": return LisnColors.warning
+        case "happy", "positive", "joyful": return .green
+        case "sad", "negative", "down": return .blue
+        case "stressed", "anxious": return .red
+        case "productive", "focused": return .orange
         case "calm", "relaxed": return .teal
-        default: return LisnColors.textSecondary
+        default: return .secondary
         }
     }
 }
@@ -342,6 +375,56 @@ struct DatePickerSheet: View {
             }
         }
         .presentationDetents([.medium])
+    }
+}
+
+// MARK: - Flow Layout
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = FlowResult(in: proposal.width ?? 0, subviews: subviews, spacing: spacing)
+        return CGSize(width: proposal.width ?? 0, height: result.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = FlowResult(in: bounds.width, subviews: subviews, spacing: spacing)
+
+        for (index, subview) in subviews.enumerated() {
+            let point = CGPoint(
+                x: bounds.minX + result.positions[index].x,
+                y: bounds.minY + result.positions[index].y
+            )
+            subview.place(at: point, anchor: .topLeading, proposal: .unspecified)
+        }
+    }
+
+    private struct FlowResult {
+        var positions: [CGPoint] = []
+        var height: CGFloat = 0
+
+        init(in width: CGFloat, subviews: Subviews, spacing: CGFloat) {
+            var x: CGFloat = 0
+            var y: CGFloat = 0
+            var maxRowHeight: CGFloat = 0
+
+            for subview in subviews {
+                let size = subview.sizeThatFits(.unspecified)
+
+                if x + size.width > width && x > 0 {
+                    x = 0
+                    y += maxRowHeight + spacing
+                    maxRowHeight = 0
+                }
+
+                positions.append(CGPoint(x: x, y: y))
+                maxRowHeight = max(maxRowHeight, size.height)
+                x += size.width + spacing
+            }
+
+            height = y + maxRowHeight
+        }
     }
 }
 

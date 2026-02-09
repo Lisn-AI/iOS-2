@@ -3,9 +3,9 @@ import MessageUI
 
 /// View for managing pending actions and permission requests
 struct ActionsView: View {
-    @ObservedObject var viewModel: ActionsViewModel
+    @StateObject private var viewModel = ActionsViewModel()
     @State private var selectedPermission: PendingPermission?
-    @State private var selectedSuggestion: ProactiveSuggestion?
+    @State private var showSuggestionsView = false
     @State private var showMailComposer = false
     @State private var showEmailInputSheet = false
     @State private var emailInputText = ""
@@ -25,27 +25,20 @@ struct ActionsView: View {
                     contentList
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .top) {
-                HStack {
-                    Text("Actions")
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundColor(LisnColors.textPrimary)
-                    Spacer()
+            .navigationTitle("Actions")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { Task { await viewModel.refresh() } }) {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(LisnColors.textSecondary)
                     }
                     .disabled(viewModel.isLoading)
                 }
-                .padding(.horizontal)
-                .padding(.top, LisnSpacing.sm)
-                .padding(.bottom, LisnSpacing.xs)
-                .background(.regularMaterial)
             }
             .refreshable {
                 await viewModel.refresh()
+            }
+            .task {
+                await viewModel.loadData()
             }
             .sheet(item: $selectedPermission) { permission in
                 PermissionApprovalSheet(
@@ -99,27 +92,11 @@ struct ActionsView: View {
                     }
                 }
             }
-            .sheet(item: $selectedSuggestion) { suggestion in
-                SuggestionDetailSheet(
-                    suggestion: suggestion,
-                    onAccept: {
-                        Task {
-                            let result = await viewModel.acceptSuggestion(suggestion)
-                            selectedSuggestion = nil
-
-                            if let result = result, result.success && result.requiresUserInput == .none {
-                                successMessage = result.message
-                                showSuccessAlert = true
-                            }
-                        }
-                    },
-                    onDismiss: {
-                        Task {
-                            await viewModel.dismissSuggestion(suggestion)
-                            selectedSuggestion = nil
-                        }
-                    }
-                )
+            .navigationDestination(isPresented: $showSuggestionsView) {
+                SuggestionsView()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openSuggestions)) { _ in
+                showSuggestionsView = true
             }
             .alert("Error", isPresented: $viewModel.showError) {
                 Button("OK") { }
@@ -176,121 +153,94 @@ struct ActionsView: View {
     // MARK: - Empty State
 
     private var emptyStateView: some View {
-        VStack(spacing: LisnSpacing.md) {
-            Circle()
-                .fill(LisnColors.bgSecondary)
-                .frame(width: 80, height: 80)
-                .overlay {
-                    Image(systemName: "bolt")
-                        .font(.system(size: 32, weight: .medium))
-                        .foregroundColor(LisnColors.accent)
-                }
-
-            Text("All Caught Up")
-                .font(LisnFont.titleLarge())
-                .foregroundColor(LisnColors.textPrimary)
-
-            Text("Actions from your conversations will appear here")
-                .font(LisnFont.bodyMedium())
-                .foregroundColor(LisnColors.textSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, LisnSpacing.xl)
+        ContentUnavailableView(
+            "No Pending Actions",
+            systemImage: "checkmark.circle",
+            description: Text("Actions from your conversations will appear here")
+        )
     }
 
     // MARK: - Content List
 
     private var contentList: some View {
-        ScrollView {
-            LazyVStack(spacing: LisnSpacing.lg) {
-                // Proactive Suggestions Section
-                if !viewModel.suggestions.isEmpty {
-                    VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-                        Label("Suggestions", systemImage: "lightbulb.fill")
-                            .lisnSectionHeader()
-                            .padding(.horizontal, LisnSpacing.xxs)
-
-                        VStack(spacing: LisnSpacing.sm) {
-                            ForEach(viewModel.suggestions) { suggestion in
-                                SuggestionPreviewRow(suggestion: suggestion)
-                                    .padding(LisnSpacing.md)
-                                    .lisnCardStyle()
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        selectedSuggestion = suggestion
-                                    }
+        List {
+            // Proactive Suggestions Section
+            if !viewModel.suggestions.isEmpty {
+                Section {
+                    ForEach(viewModel.suggestions.prefix(3)) { suggestion in
+                        SuggestionPreviewRow(suggestion: suggestion)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                showSuggestionsView = true
+                            }
+                    }
+                    if viewModel.suggestions.count > 3 {
+                        Button(action: { showSuggestionsView = true }) {
+                            HStack {
+                                Text("View all \(viewModel.suggestions.count) suggestions")
+                                    .foregroundColor(.blue)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundColor(.secondary)
                             }
                         }
                     }
-                }
-
-                // Permission Requests Section
-                if !viewModel.pendingPermissions.isEmpty {
-                    VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-                        Label("Needs Approval", systemImage: "lock.shield")
-                            .lisnSectionHeader()
-                            .padding(.horizontal, LisnSpacing.xxs)
-
-                        VStack(spacing: LisnSpacing.sm) {
-                            ForEach(viewModel.pendingPermissions) { permission in
-                                PermissionRequestRow(permission: permission)
-                                    .padding(LisnSpacing.md)
-                                    .lisnCardStyle()
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        selectedPermission = permission
-                                    }
-                            }
-                        }
-                    }
-                }
-
-                // Pending Actions Section
-                if !viewModel.pendingActions.isEmpty {
-                    VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-                        Label("Ready to Execute", systemImage: "bolt.fill")
-                            .lisnSectionHeader()
-                            .padding(.horizontal, LisnSpacing.xxs)
-
-                        VStack(spacing: LisnSpacing.sm) {
-                            ForEach(viewModel.pendingActions) { action in
-                                PendingActionRow(action: action) {
-                                    Task {
-                                        let result = await viewModel.executeAction(action)
-
-                                        switch result.requiresUserInput {
-                                        case .emailAddress:
-                                            pendingEmailAction = action
-                                            emailInputText = ""
-                                            showEmailInputSheet = true
-
-                                        case .mailComposer:
-                                            if let details = ActionExecutor.shared.getEmailDraftDetails(from: ActionExecutor.shared.pendingEmailAction ?? action) {
-                                                emailDraftDetails = details
-                                                showMailComposer = true
-                                            }
-
-                                        case .phoneNumber:
-                                            break
-
-                                        case .none:
-                                            break
-                                        }
-                                    }
-                                }
-                                .padding(LisnSpacing.md)
-                                .lisnCardStyle()
-                            }
-                        }
-                    }
+                } header: {
+                    Label("Suggestions", systemImage: "lightbulb.fill")
                 }
             }
-            .padding(.horizontal, LisnSpacing.md)
-            .padding(.top, LisnSpacing.xs)
-            .padding(.bottom, LisnSpacing.xxxl)
+
+            // Permission Requests Section
+            if !viewModel.pendingPermissions.isEmpty {
+                Section {
+                    ForEach(viewModel.pendingPermissions) { permission in
+                        PermissionRequestRow(permission: permission)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedPermission = permission
+                            }
+                    }
+                } header: {
+                    Label("Needs Approval", systemImage: "lock.shield")
+                }
+            }
+
+            // Pending Actions Section
+            if !viewModel.pendingActions.isEmpty {
+                Section {
+                    ForEach(viewModel.pendingActions) { action in
+                        PendingActionRow(action: action) {
+                            Task {
+                                let result = await viewModel.executeAction(action)
+
+                                // Handle different user input requirements
+                                switch result.requiresUserInput {
+                                case .emailAddress:
+                                    pendingEmailAction = action
+                                    emailInputText = ""
+                                    showEmailInputSheet = true
+
+                                case .mailComposer:
+                                    if let details = ActionExecutor.shared.getEmailDraftDetails(from: ActionExecutor.shared.pendingEmailAction ?? action) {
+                                        emailDraftDetails = details
+                                        showMailComposer = true
+                                    }
+
+                                case .phoneNumber:
+                                    // TODO: Implement phone number input
+                                    break
+
+                                case .none:
+                                    break
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Label("Ready to Execute", systemImage: "bolt.fill")
+                }
+            }
         }
-        .background(LisnColors.bgPrimary)
     }
 }
 
@@ -300,38 +250,30 @@ struct SuggestionPreviewRow: View {
     let suggestion: ProactiveSuggestion
 
     var body: some View {
-        HStack(alignment: .top, spacing: LisnSpacing.sm) {
-            Circle()
-                .fill(typeColor.opacity(0.12))
-                .frame(width: 40, height: 40)
-                .overlay {
-                    Image(systemName: typeIcon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(typeColor)
-                }
+        HStack(spacing: 12) {
+            Image(systemName: typeIcon)
+                .font(.title3)
+                .foregroundColor(typeColor)
+                .frame(width: 28)
 
-            VStack(alignment: .leading, spacing: LisnSpacing.xs) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(suggestion.title)
-                    .font(LisnFont.bodyMedium())
-                    .fontWeight(.semibold)
-                    .foregroundColor(LisnColors.textPrimary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
 
                 Text(suggestion.body)
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textSecondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
             }
 
-            Spacer(minLength: LisnSpacing.xs)
+            Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(LisnColors.textTertiary)
-                .padding(.top, LisnSpacing.xs)
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
+        .padding(.vertical, 2)
     }
 
     private var typeIcon: String {
@@ -348,13 +290,13 @@ struct SuggestionPreviewRow: View {
 
     private var typeColor: Color {
         switch suggestion.type {
-        case "call_reminder": return LisnColors.success
-        case "follow_up": return LisnColors.accent
-        case "task_reminder": return LisnColors.warning
-        case "pattern_insight": return Color.purple
-        case "connection_prompt": return Color.pink
-        case "event_reminder": return Color.cyan
-        default: return LisnColors.warning
+        case "call_reminder": return .green
+        case "follow_up": return .blue
+        case "task_reminder": return .orange
+        case "pattern_insight": return .purple
+        case "connection_prompt": return .pink
+        case "event_reminder": return .cyan
+        default: return .yellow
         }
     }
 }
@@ -365,55 +307,48 @@ struct PermissionRequestRow: View {
     let permission: PendingPermission
 
     var body: some View {
-        HStack(spacing: LisnSpacing.sm) {
+        HStack(spacing: 12) {
+            // Risk indicator
             Circle()
-                .fill(riskColor.opacity(0.12))
-                .frame(width: 36, height: 36)
-                .overlay {
-                    Image(systemName: "lock.shield")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(riskColor)
-                }
+                .fill(riskColor)
+                .frame(width: 10, height: 10)
 
-            VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(permission.displayTitle)
-                    .font(LisnFont.bodyMedium())
-                    .fontWeight(.medium)
-                    .foregroundColor(LisnColors.textPrimary)
+                    .font(.headline)
 
                 Text(permission.displayDescription)
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textSecondary)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
                     .lineLimit(2)
 
-                HStack(spacing: LisnSpacing.xxs) {
+                HStack {
                     Label(permission.skill, systemImage: "app.fill")
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.accent)
+                        .font(.caption)
+                        .foregroundColor(.blue)
 
-                    Text("\u{2022}")
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.textTertiary)
+                    Text("•")
+                        .foregroundColor(.secondary)
 
                     Text(permission.tool)
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.textSecondary)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
 
             Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(LisnColors.textTertiary)
+                .foregroundColor(.secondary)
         }
+        .padding(.vertical, 4)
     }
 
     private var riskColor: Color {
         switch permission.displayRisk?.lowercased() {
-        case "high": return LisnColors.error
-        case "medium": return LisnColors.warning
-        default: return LisnColors.success
+        case "high": return .red
+        case "medium": return .orange
+        default: return .green
         }
     }
 }
@@ -425,46 +360,37 @@ struct PendingActionRow: View {
     let onExecute: () -> Void
 
     var body: some View {
-        HStack(spacing: LisnSpacing.sm) {
-            Circle()
-                .fill(LisnColors.accent.opacity(0.12))
-                .frame(width: 36, height: 36)
-                .overlay {
-                    Image(systemName: actionIcon)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(LisnColors.accent)
-                }
+        HStack(spacing: 12) {
+            // Action type icon
+            Image(systemName: actionIcon)
+                .font(.title2)
+                .foregroundColor(.blue)
+                .frame(width: 32)
 
-            VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(actionTitle)
-                    .font(LisnFont.bodyMedium())
-                    .fontWeight(.medium)
-                    .foregroundColor(LisnColors.textPrimary)
+                    .font(.headline)
 
                 Text(actionDescription)
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textSecondary)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
                     .lineLimit(2)
 
                 Text(formattedDate)
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textTertiary)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Spacer()
 
             Button(action: onExecute) {
-                Text("Execute")
-                    .font(LisnFont.caption())
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, LisnSpacing.sm)
-                    .padding(.vertical, LisnSpacing.xs)
-                    .background(LisnColors.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
+                Image(systemName: "play.circle.fill")
+                    .font(.title)
+                    .foregroundColor(.green)
             }
             .buttonStyle(.plain)
         }
+        .padding(.vertical, 4)
     }
 
     private var actionIcon: String {
@@ -577,40 +503,40 @@ struct PermissionApprovalSheet: View {
                 VStack(spacing: 12) {
                     Image(systemName: "lock.shield")
                         .font(.system(size: 48))
-                        .foregroundColor(LisnColors.accent)
+                        .foregroundColor(.blue)
 
                     Text(permission.displayTitle)
-                        .font(LisnFont.titleLarge())
+                        .font(.title2)
                         .fontWeight(.semibold)
                         .multilineTextAlignment(.center)
 
                     Text(permission.displayDescription)
-                        .font(LisnFont.bodyLarge())
-                        .foregroundColor(LisnColors.textSecondary)
+                        .font(.body)
+                        .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .padding(.top)
 
                 // Scope selection
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Allow this action:")
-                            .font(LisnFont.titleSmall())
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Allow this action:")
+                        .font(.headline)
 
-                        Picker("Scope", selection: $selectedScope) {
-                            ForEach(PermissionScope.allCases, id: \.self) { scope in
-                                Text(scope.displayName).tag(scope)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        if selectedScope == .always {
-                            Toggle("Create a rule for similar actions", isOn: $createRule)
-                                .font(LisnFont.bodyMedium())
+                    Picker("Scope", selection: $selectedScope) {
+                        ForEach(PermissionScope.allCases, id: \.self) { scope in
+                            Text(scope.displayName).tag(scope)
                         }
                     }
-                    .padding()
+                    .pickerStyle(.segmented)
+
+                    if selectedScope == .always {
+                        Toggle("Create a rule for similar actions", isOn: $createRule)
+                            .font(.subheadline)
+                    }
                 }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
 
                 // Risk indicator
                 if let risk = permission.displayRisk {
@@ -618,8 +544,8 @@ struct PermissionApprovalSheet: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(riskColor(risk))
                         Text("Risk level: \(risk)")
-                            .font(LisnFont.bodyMedium())
-                            .foregroundColor(LisnColors.textSecondary)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
                     }
                 }
 
@@ -634,9 +560,9 @@ struct PermissionApprovalSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(LisnColors.success)
+                        .background(Color.green)
                         .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+                        .cornerRadius(12)
                     }
 
                     Button(action: onDeny) {
@@ -646,9 +572,9 @@ struct PermissionApprovalSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(LisnColors.bgSecondary)
+                        .background(Color(.systemGray5))
                         .foregroundColor(.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+                        .cornerRadius(12)
                     }
                 }
             }
@@ -665,9 +591,9 @@ struct PermissionApprovalSheet: View {
 
     private func riskColor(_ risk: String) -> Color {
         switch risk.lowercased() {
-        case "high": return LisnColors.error
-        case "medium": return LisnColors.warning
-        default: return LisnColors.success
+        case "high": return .red
+        case "medium": return .orange
+        default: return .green
         }
     }
 }
@@ -766,42 +692,6 @@ class ActionsViewModel: ObservableObject {
         }
     }
 
-    func acceptSuggestion(_ suggestion: ProactiveSuggestion) async -> ActionExecutionResult? {
-        do {
-            let response = try await api.acceptSuggestion(suggestionId: suggestion.id)
-
-            suggestions.removeAll { $0.id == suggestion.id }
-
-            if let action = response.suggestedAction {
-                let executor = ActionExecutor.shared
-                let result = await executor.executeSuggestedAction(action, suggestionId: suggestion.id)
-
-                if !result.success {
-                    errorMessage = result.message
-                    showError = true
-                }
-
-                return result
-            }
-
-            return nil
-        } catch {
-            errorMessage = error.localizedDescription
-            showError = true
-            return nil
-        }
-    }
-
-    func dismissSuggestion(_ suggestion: ProactiveSuggestion) async {
-        do {
-            _ = try await api.dismissSuggestion(suggestionId: suggestion.id)
-            suggestions.removeAll { $0.id == suggestion.id }
-        } catch {
-            errorMessage = error.localizedDescription
-            showError = true
-        }
-    }
-
     func executeAction(_ action: PendingAction) async -> ActionExecutionResult {
         let executor = ActionExecutor.shared
 
@@ -837,15 +727,15 @@ struct EmailInputSheet: View {
                 VStack(spacing: 12) {
                     Image(systemName: "envelope.badge.person.crop")
                         .font(.system(size: 48))
-                        .foregroundColor(LisnColors.accent)
+                        .foregroundColor(.blue)
 
                     Text("Email Address Needed")
-                        .font(LisnFont.titleLarge())
+                        .font(.title2)
                         .fontWeight(.semibold)
 
                     Text("Enter the email address for \(recipientName)")
-                        .font(LisnFont.bodyLarge())
-                        .foregroundColor(LisnColors.textSecondary)
+                        .font(.body)
+                        .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .padding(.top)
@@ -853,7 +743,7 @@ struct EmailInputSheet: View {
                 // Email input
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Email Address")
-                        .font(LisnFont.titleSmall())
+                        .font(.headline)
 
                     TextField("name@example.com", text: $emailText)
                         .textFieldStyle(.roundedBorder)
@@ -864,8 +754,8 @@ struct EmailInputSheet: View {
                         .focused($isFocused)
                 }
                 .padding()
-                .background(LisnColors.bgSecondary)
-                .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
 
                 Spacer()
 
@@ -882,9 +772,9 @@ struct EmailInputSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(isValidEmail(emailText) ? LisnColors.accent : Color.gray)
+                        .background(isValidEmail(emailText) ? Color.blue : Color.gray)
                         .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+                        .cornerRadius(12)
                     }
                     .disabled(!isValidEmail(emailText))
 
@@ -892,9 +782,9 @@ struct EmailInputSheet: View {
                         Text("Cancel")
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(LisnColors.bgSecondary)
+                            .background(Color(.systemGray5))
                             .foregroundColor(.primary)
-                            .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+                            .cornerRadius(12)
                     }
                 }
             }
@@ -915,5 +805,5 @@ struct EmailInputSheet: View {
 }
 
 #Preview {
-    ActionsView(viewModel: ActionsViewModel())
+    ActionsView()
 }

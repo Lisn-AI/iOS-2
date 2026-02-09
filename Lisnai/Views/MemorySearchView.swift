@@ -24,10 +24,8 @@ struct MemorySearchView: View {
                     suggestionsView
                 }
             }
-            .background(LisnColors.bgPrimary)
             .navigationTitle("Search Memories")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .alert("Error", isPresented: $viewModel.showError) {
                 Button("OK") { }
             } message: {
@@ -42,10 +40,9 @@ struct MemorySearchView: View {
         HStack(spacing: 12) {
             HStack {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(LisnColors.textSecondary)
+                    .foregroundColor(.secondary)
 
                 TextField("Search your memories...", text: $searchText)
-                    .font(LisnFont.bodyMedium())
                     .textFieldStyle(.plain)
                     .autocorrectionDisabled()
                     .focused($isSearchFieldFocused)
@@ -60,13 +57,13 @@ struct MemorySearchView: View {
                         viewModel.results = []
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(LisnColors.textSecondary)
+                            .foregroundColor(.secondary)
                     }
                 }
             }
             .padding(10)
-            .background(LisnColors.bgSecondary)
-            .cornerRadius(LisnRadius.sm)
+            .background(Color(.systemGray6))
+            .cornerRadius(10)
 
             if isSearching || isSearchFieldFocused {
                 Button("Cancel") {
@@ -74,8 +71,7 @@ struct MemorySearchView: View {
                     isSearchFieldFocused = false
                     viewModel.results = []
                 }
-                .font(LisnFont.bodyMedium())
-                .foregroundColor(LisnColors.accent)
+                .foregroundColor(.blue)
             }
         }
         .padding()
@@ -85,13 +81,13 @@ struct MemorySearchView: View {
     // MARK: - Loading View
 
     private var loadingView: some View {
-        VStack(spacing: LisnSpacing.md) {
+        VStack(spacing: 16) {
             ProgressView()
                 .scaleEffect(1.5)
 
             Text("Searching memories...")
-                .font(LisnFont.bodySmall())
-                .foregroundColor(LisnColors.textSecondary)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -110,12 +106,12 @@ struct MemorySearchView: View {
 
     private var suggestionsView: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: LisnSpacing.md) {
+            VStack(alignment: .leading, spacing: 16) {
                 Text("Try searching for:")
-                    .font(LisnFont.titleSmall())
+                    .font(.headline)
                     .padding(.horizontal)
 
-                VStack(spacing: LisnSpacing.sm) {
+                VStack(spacing: 12) {
                     ForEach(searchSuggestions, id: \.self) { suggestion in
                         Button(action: {
                             searchText = suggestion
@@ -123,18 +119,17 @@ struct MemorySearchView: View {
                         }) {
                             HStack {
                                 Image(systemName: "magnifyingglass")
-                                    .foregroundColor(LisnColors.textSecondary)
+                                    .foregroundColor(.secondary)
                                 Text(suggestion)
-                                    .font(LisnFont.bodyMedium())
                                     .foregroundColor(.primary)
                                 Spacer()
                                 Image(systemName: "arrow.up.left")
-                                    .font(LisnFont.caption())
-                                    .foregroundColor(LisnColors.textSecondary)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
                             .padding()
-                            .background(LisnColors.bgSecondary)
-                            .cornerRadius(LisnRadius.sm)
+                            .background(Color(.systemGray6))
+                            .cornerRadius(10)
                         }
                     }
                 }
@@ -143,9 +138,9 @@ struct MemorySearchView: View {
                 Divider()
                     .padding(.vertical)
 
-                VStack(alignment: .leading, spacing: LisnSpacing.xs) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("Search Tips")
-                        .font(LisnFont.titleSmall())
+                        .font(.headline)
 
                     VStack(alignment: .leading, spacing: 4) {
                         tipRow(icon: "clock", text: "Use time words: \"yesterday\", \"last week\", \"this morning\"")
@@ -161,13 +156,13 @@ struct MemorySearchView: View {
     }
 
     private func tipRow(icon: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: LisnSpacing.xs) {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: icon)
-                .foregroundColor(LisnColors.accent)
+                .foregroundColor(.blue)
                 .frame(width: 20)
             Text(text)
-                .font(LisnFont.bodySmall())
-                .foregroundColor(LisnColors.textSecondary)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -187,19 +182,15 @@ struct MemorySearchView: View {
         List {
             Section {
                 Text("\(viewModel.results.count) memories found")
-                    .font(LisnFont.bodySmall())
-                    .foregroundColor(LisnColors.textSecondary)
-                    .listRowBackground(LisnColors.bgElevated)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
 
             ForEach(viewModel.results) { result in
                 SearchResultRow(result: result)
-                    .listRowBackground(LisnColors.bgElevated)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(LisnColors.bgPrimary)
     }
 
     // MARK: - Actions
@@ -220,19 +211,19 @@ struct SearchResultRow: View {
     let result: SearchResult
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LisnSpacing.xs) {
+        VStack(alignment: .leading, spacing: 8) {
             // Snippet
             Text(result.transcriptSnippet)
-                .font(LisnFont.bodyMedium())
+                .font(.body)
                 .lineLimit(3)
 
             HStack {
                 // Relevance indicator
                 HStack(spacing: 4) {
                     Image(systemName: "sparkles")
-                        .font(LisnFont.caption())
+                        .font(.caption)
                     Text("\(Int(result.relevanceScore * 100))% match")
-                        .font(LisnFont.caption())
+                        .font(.caption)
                 }
                 .foregroundColor(relevanceColor)
 
@@ -241,8 +232,8 @@ struct SearchResultRow: View {
                 // Timestamp
                 if let timestamp = result.timestamp {
                     Text(formattedDate(timestamp))
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.textSecondary)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
 
@@ -250,7 +241,13 @@ struct SearchResultRow: View {
             if let topics = result.topics, !topics.isEmpty {
                 FlowLayout(spacing: 4) {
                     ForEach(topics.prefix(3), id: \.self) { topic in
-                        LisnChip(text: topic, color: LisnColors.accent)
+                        Text(topic)
+                            .font(.caption2)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.blue.opacity(0.1))
+                            .foregroundColor(.blue)
+                            .cornerRadius(8)
                     }
                 }
             }
@@ -260,11 +257,11 @@ struct SearchResultRow: View {
 
     private var relevanceColor: Color {
         if result.relevanceScore >= 0.8 {
-            return LisnColors.success
+            return .green
         } else if result.relevanceScore >= 0.6 {
-            return LisnColors.warning
+            return .orange
         } else {
-            return LisnColors.textTertiary
+            return .secondary
         }
     }
 

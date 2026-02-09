@@ -10,35 +10,39 @@ struct HistoryView: View {
         NavigationStack {
             Group {
                 if recordings.isEmpty {
-                    VStack {
-                        Spacer()
-                        LisnEmptyState(
-                            icon: "clock.badge.questionmark",
-                            title: "No recordings yet",
-                            subtitle: "Start recording your day and your memories will appear here."
-                        )
-                        Spacer()
-                    }
+                    emptyStateView
                 } else {
                     recordingsList
                 }
             }
-            .safeAreaInset(edge: .top) {
-                Text("History")
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundColor(LisnColors.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                    .padding(.top, LisnSpacing.sm)
-                    .padding(.bottom, LisnSpacing.xs)
-                    .background(.regularMaterial)
-            }
-            .toolbar(.hidden, for: .navigationBar)
+            .navigationTitle("History")
+            .navigationBarTitleDisplayMode(.large)
         }
-        .background(LisnColors.bgPrimary)
     }
 
     // MARK: - Subviews
+
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            Image(systemName: "clock.badge.questionmark")
+                .font(.system(size: 60))
+                .foregroundColor(.secondary.opacity(0.5))
+
+            Text("No recordings yet")
+                .font(.title3)
+                .fontWeight(.semibold)
+
+            Text("Start recording your day and your memories will appear here.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            Spacer()
+        }
+    }
 
     private var recordingsList: some View {
         List {
@@ -50,20 +54,18 @@ struct HistoryView: View {
                         } label: {
                             RecordingRow(recording: recording)
                         }
-                        .listRowBackground(LisnColors.bgPrimary)
                     }
                     .onDelete { indexSet in
                         deleteRecordings(at: indexSet, from: dayRecordings)
                     }
                 } header: {
                     Text(formatSectionDate(date))
-                        .lisnSectionHeader()
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(LisnColors.bgPrimary)
     }
 
     // MARK: - Grouped Data
@@ -105,51 +107,46 @@ struct RecordingRow: View {
     let recording: Recording
 
     var body: some View {
-        HStack(spacing: LisnSpacing.md) {
+        HStack(spacing: 12) {
             // Icon
             ZStack {
                 Circle()
-                    .fill(LisnColors.bgSecondary)
+                    .fill(Color.blue.opacity(0.1))
                     .frame(width: 44, height: 44)
 
                 Image(systemName: "waveform")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(LisnColors.accent)
+                    .foregroundColor(.blue)
             }
 
             // Info
             VStack(alignment: .leading, spacing: 4) {
-                // Time
                 Text(formatTime(recording.date))
-                    .font(LisnFont.bodyMedium())
-                    .fontWeight(.semibold)
-                    .foregroundColor(LisnColors.textPrimary)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
 
-                // Summary preview or duration
-                if let summary = recording.summary {
-                    Text(summary.text)
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.textSecondary)
-                        .lineLimit(2)
-                } else if recording.duration > 0 {
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock")
-                            .font(.system(size: 11))
-                        Text(recording.formattedDuration)
+                HStack(spacing: 8) {
+                    Label(recording.formattedDuration, systemImage: "clock")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    if recording.summary != nil {
+                        Label("Summary", systemImage: "doc.text")
+                            .font(.caption)
+                            .foregroundColor(.blue)
                     }
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textSecondary)
-                } else {
-                    Text("Processing...")
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.textSecondary)
-                        .italic()
                 }
             }
 
             Spacer()
+
+            // Sync indicator
+            if recording.isSynced {
+                Image(systemName: "checkmark.icloud.fill")
+                    .font(.caption)
+                    .foregroundColor(.green)
+            }
         }
-        .padding(.vertical, LisnSpacing.xxs)
+        .padding(.vertical, 4)
     }
 
     private func formatTime(_ date: Date) -> String {
@@ -177,17 +174,15 @@ struct RecordingDetailView: View {
 
             // Content
             ScrollView {
-                VStack(alignment: .leading, spacing: LisnSpacing.md) {
+                VStack(alignment: .leading, spacing: 16) {
                     // Metadata
                     HStack {
                         Label(recording.formattedDate, systemImage: "calendar")
                         Spacer()
-                        if recording.duration > 0 {
-                            Label(recording.formattedDuration, systemImage: "clock")
-                        }
+                        Label(recording.formattedDuration, systemImage: "clock")
                     }
-                    .font(LisnFont.bodyMedium())
-                    .foregroundColor(LisnColors.textSecondary)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
 
                     Divider()
 
@@ -203,18 +198,17 @@ struct RecordingDetailView: View {
         }
         .navigationTitle("Recording")
         .navigationBarTitleDisplayMode(.inline)
-        .background(LisnColors.bgPrimary)
     }
 
     @ViewBuilder
     private var summaryContent: some View {
         if let summary = recording.summary {
             Text(summary.text)
-                .font(LisnFont.bodyLarge())
+                .font(.body)
         } else {
             Text("No summary available")
-                .font(LisnFont.bodyLarge())
-                .foregroundColor(LisnColors.textSecondary)
+                .font(.body)
+                .foregroundColor(.secondary)
                 .italic()
         }
     }
@@ -223,12 +217,12 @@ struct RecordingDetailView: View {
     private var transcriptionContent: some View {
         if let transcription = recording.transcription {
             Text(transcription.text)
-                .font(LisnFont.bodyLarge())
+                .font(.body)
                 .textSelection(.enabled)
         } else {
             Text("No transcription available")
-                .font(LisnFont.bodyLarge())
-                .foregroundColor(LisnColors.textSecondary)
+                .font(.body)
+                .foregroundColor(.secondary)
                 .italic()
         }
     }

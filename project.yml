@@ -30,7 +30,6 @@ packages:
     url: https://github.com/google/GoogleSignIn-iOS.git
     from: 8.0.0
 
-
 schemes:
   Lisnai:
     build:
@@ -77,7 +76,6 @@ targets:
         product: GoogleSignIn
       - package: GoogleSignIn-iOS
         product: GoogleSignInSwift
-
       # EventKit (system framework for Reminders/Calendar)
       - sdk: EventKit.framework
 
@@ -114,13 +112,6 @@ targets:
 
         # Live Activities support (for Dynamic Island)
         NSSupportsLiveActivities: true
-
-        # Custom fonts
-        UIAppFonts:
-          - Inter-Regular.ttf
-          - Inter-Medium.ttf
-          - Inter-SemiBold.ttf
-          - Inter-Bold.ttf
 
         # Background modes
         UIBackgroundModes:
@@ -170,7 +161,6 @@ targets:
       - path: Lisnai/RecordingActivityAttributes.swift
       - path: Lisnai/ResumeRecordingIntent.swift
       - path: Lisnai/TaskActivityAttributes.swift
-      - path: Lisnai/Theme/LisnSharedColors.swift
 
     settings:
       base:
