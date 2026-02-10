@@ -37,34 +37,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         let bgPrimary = UIColor(named: "BGPrimary") ?? UIColor(red: 1.0, green: 0.992, blue: 0.969, alpha: 1.0)
 
-        // Tab bar - custom font, outline icons
-        let tabFont = UIFont.systemFont(ofSize: 10, weight: .bold)
-
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: tabFont,
-            .foregroundColor: UIColor.tertiaryLabel
-        ]
-        let selectedAttrs: [NSAttributedString.Key: Any] = [
-            .font: tabFont,
-            .foregroundColor: UIColor.label
-        ]
-
-        let tabItemAppearance = UITabBarItemAppearance()
-        tabItemAppearance.normal.titleTextAttributes = normalAttrs
-        tabItemAppearance.normal.iconColor = UIColor.tertiaryLabel
-        tabItemAppearance.selected.titleTextAttributes = selectedAttrs
-        tabItemAppearance.selected.iconColor = UIColor.label
-
-        let tabBarAppearance = UITabBarAppearance()
-        tabBarAppearance.stackedLayoutAppearance = tabItemAppearance
-        UITabBar.appearance().standardAppearance = tabBarAppearance
-        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
-
-        // Force outline (non-fill) icons in tab bar
-        let outlineConfig = UIImage.SymbolConfiguration(weight: .medium)
-            .applying(UIImage.SymbolConfiguration(paletteColors: [.label]))
-        UITabBar.appearance().itemPositioning = .fill
-
         // Navigation bar - matches bgPrimary
         let navBarAppearance = UINavigationBarAppearance()
         navBarAppearance.configureWithOpaqueBackground()
@@ -219,6 +191,8 @@ struct LisnaiApp: App {
     @StateObject private var taskActivityManager = TaskActivityManager.shared
     @StateObject private var suggestionMonitor = SuggestionMonitor.shared
 
+    @State private var showSplash = true
+
     /// SwiftData model container for local persistence
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -241,14 +215,29 @@ struct LisnaiApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .preferredColorScheme(.light)
-                .environmentObject(recordingManager)
-                .environmentObject(locationManager)
-                .environmentObject(authService)
-                .onOpenURL { url in
-                    handleDeepLink(url)
+            ZStack {
+                ContentView()
+                    .preferredColorScheme(.light)
+                    .environmentObject(recordingManager)
+                    .environmentObject(locationManager)
+                    .environmentObject(authService)
+                    .onOpenURL { url in
+                        handleDeepLink(url)
+                    }
+
+                if showSplash {
+                    SplashLogoView()
+                        .transition(.opacity)
+                        .zIndex(1)
+                        .onAppear {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                                withAnimation(.easeOut(duration: 0.5)) {
+                                    showSplash = false
+                                }
+                            }
+                        }
                 }
+            }
         }
         .modelContainer(sharedModelContainer)
     }

@@ -17,8 +17,14 @@ enum LisnColors {
     static let border = Color("Border")
     static let borderSubtle = Color("BorderSubtle")
 
-    // Accent
+    // Accent — Rich Amber #C4813D
     static let accent = Color("Accent")
+    static let accentSecondary = Color("AccentSecondary")
+
+    // Orb gradient colors (warm amber spectrum)
+    static let orbLight = Color(red: 0.878, green: 0.624, blue: 0.322)   // #E09F52
+    static let orbDark = Color(red: 0.667, green: 0.416, blue: 0.176)    // #AA6A2D
+    static let orbGlow = Color(red: 0.831, green: 0.584, blue: 0.282)    // #D49548
 
     // Semantic
     static let success = Color("Success")
@@ -28,7 +34,7 @@ enum LisnColors {
 
     // Recording states
     static let recording = accent
-    static let paused = Color.orange
+    static let paused = Color(red: 0.85, green: 0.45, blue: 0.25)  // Warm rust-orange
 }
 
 // MARK: - Spacing (8pt grid)

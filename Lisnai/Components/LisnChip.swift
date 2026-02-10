@@ -3,7 +3,7 @@ import SwiftUI
 struct LisnChip: View {
     let text: String
     var icon: String? = nil
-    var color: Color = LisnColors.accent
+    var color: Color? = nil
     var action: (() -> Void)? = nil
 
     var body: some View {

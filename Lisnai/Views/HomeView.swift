@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// Home view with recording controls
+/// Home view with recording controls and transcription display
 struct HomeView: View {
     @EnvironmentObject var recordingManager: RecordingManager
     @EnvironmentObject var locationManager: LocationManager
@@ -13,55 +13,49 @@ struct HomeView: View {
     @State private var showTodayBriefing = false
     @State private var pendingActionsCount = 0
     @State private var pendingSuggestionsCount = 0
+    @State private var appeared = false
+    @State private var dismissedResults = false
+
+    /// Whether we have results to show
+    private var hasResults: Bool {
+        !recordingManager.transcription.isEmpty && !isRecording && !recordingManager.isProcessing && !dismissedResults
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Custom top bar
+            // Top bar
             topBar
-                .padding(.horizontal, LisnSpacing.md)
+                .padding(.horizontal, LisnSpacing.lg)
                 .padding(.top, LisnSpacing.sm)
 
             // Quick Actions Row
             quickActionsRow
-                .padding(.horizontal, LisnSpacing.md)
+                .padding(.horizontal, LisnSpacing.lg)
                 .padding(.top, LisnSpacing.md)
 
-            Spacer()
-
-            // Hero: Recording Orb
-            RecordingOrb(
-                isRecording: isRecording,
-                audioLevel: recordingManager.audioLevel,
-                isPaused: recordingManager.isPausedForCall,
-                action: toggleRecording
-            )
-
-            // Status Text (below orb)
-            statusLabel
-                .padding(.top, LisnSpacing.lg)
-
-            Spacer()
-
-            // Processing Status
-            if recordingManager.isProcessing {
-                processingView
-                    .padding(.horizontal, LisnSpacing.md)
-                    .padding(.bottom, LisnSpacing.lg)
+            if hasResults {
+                resultsLayout
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+            } else {
+                defaultLayout
+                    .transition(.opacity)
             }
-
-            // Recent Result Preview
-            if !recordingManager.summary.isEmpty && !recordingManager.isProcessing {
-                recentResultPreview
-                    .padding(.horizontal, LisnSpacing.md)
-                    .padding(.bottom, LisnSpacing.lg)
-            }
-
-            // Bottom Stats
-            bottomStats
-                .padding(.horizontal, LisnSpacing.md)
-                .padding(.bottom, LisnSpacing.md)
         }
+        .padding(.bottom, 68)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: hasResults)
         .background(LisnColors.bgPrimary)
+        .overlay {
+            // Apple Intelligence-style edge glow when recording
+            EdgeGlowEffect(
+                isActive: isRecording && !recordingManager.isPausedForCall,
+                audioLevel: recordingManager.audioLevel
+            )
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.6), value: isRecording)
+        }
         .alert("Microphone Permission Required", isPresented: $showPermissionAlert) {
             Button("Open Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -81,36 +75,134 @@ struct HomeView: View {
         .onAppear {
             locationManager.requestPermissions()
             recordingManager.modelContext = modelContext
+            withAnimation(.easeOut(duration: 0.6).delay(0.1)) {
+                appeared = true
+            }
         }
         .task {
             await loadPendingCounts()
         }
     }
 
+    // MARK: - Default Layout
+
+    private var defaultLayout: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            // Hero: Recording Orb
+            RecordingOrb(
+                isRecording: isRecording,
+                audioLevel: recordingManager.audioLevel,
+                isPaused: recordingManager.isPausedForCall,
+                action: toggleRecording
+            )
+            .opacity(appeared ? 1 : 0)
+            .scaleEffect(appeared ? 1 : 0.8)
+
+            // Status Text
+            statusLabel
+                .padding(.top, LisnSpacing.lg)
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 10)
+
+            Spacer()
+
+            // Processing Status
+            if recordingManager.isProcessing {
+                processingView
+                    .padding(.horizontal, LisnSpacing.lg)
+                    .padding(.bottom, LisnSpacing.lg)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: recordingManager.isProcessing)
+    }
+
+    // MARK: - Results Layout
+
+    private var resultsLayout: some View {
+        VStack(spacing: 0) {
+            // Swipe indicator
+            Capsule()
+                .fill(LisnColors.textTertiary.opacity(0.3))
+                .frame(width: 36, height: 4)
+                .padding(.top, LisnSpacing.sm)
+
+            // Compact orb
+            RecordingOrb(
+                isRecording: isRecording,
+                audioLevel: recordingManager.audioLevel,
+                isPaused: recordingManager.isPausedForCall,
+                action: toggleRecording
+            )
+            .scaleEffect(0.55)
+            .frame(height: 72)
+            .padding(.top, LisnSpacing.xxs)
+
+            Text("Tap to record again")
+                .font(LisnFont.caption())
+                .foregroundColor(LisnColors.textTertiary)
+                .padding(.bottom, LisnSpacing.md)
+
+            // Scrollable results
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: LisnSpacing.md) {
+                    TranscriptionCard(
+                        transcription: recordingManager.transcription,
+                        duration: recordingManager.recordingDuration
+                    )
+
+                    if !recordingManager.summary.isEmpty {
+                        summaryCard
+                    }
+                }
+                .padding(.horizontal, LisnSpacing.lg)
+                .padding(.bottom, LisnSpacing.xxl)
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 60)
+                .onEnded { value in
+                    // Swipe down to dismiss results
+                    if value.translation.height > 80 {
+                        LisnHaptics.light()
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                            dismissedResults = true
+                        }
+                    }
+                }
+        )
+    }
+
     // MARK: - Top Bar
 
     private var topBar: some View {
-        ZStack {
-            // Centered logo
-            Text("Lisnai")
-                .font(LisnFont.titleLarge())
-                .fontWeight(.bold)
-                .foregroundColor(LisnColors.textPrimary)
+        HStack(alignment: .center) {
+            // Menu button (left)
+            Button {
+                LisnHaptics.light()
+                showSettings = true
+            } label: {
+                Image(systemName: "text.alignleft")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(LisnColors.textPrimary)
+                    .frame(width: 42, height: 42)
+                    .background(LisnColors.bgSecondary)
+                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+            }
 
-            // Menu button pinned left
-            HStack {
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(LisnColors.textPrimary)
-                        .frame(width: 40, height: 40)
-                        .background(LisnColors.bgSecondary)
-                        .clipShape(Circle())
-                }
+            Spacer()
 
-                Spacer()
+            // Greeting + date (center-right area)
+            VStack(alignment: .trailing, spacing: LisnSpacing.xxxs) {
+                Text(greetingText)
+                    .font(LisnFont.titleSmall())
+                    .foregroundColor(LisnColors.textPrimary)
+
+                Text(todayDateString)
+                    .font(LisnFont.caption())
+                    .foregroundColor(LisnColors.textTertiary)
             }
         }
     }
@@ -119,35 +211,60 @@ struct HomeView: View {
 
     private var quickActionsRow: some View {
         HStack(spacing: LisnSpacing.sm) {
-            LisnChip(
-                text: "Search",
-                icon: "magnifyingglass",
-                color: LisnColors.accent,
-                action: { showMemorySearch = true }
-            )
+            // Search chip
+            Button {
+                LisnHaptics.light()
+                showMemorySearch = true
+            } label: {
+                HStack(spacing: LisnSpacing.xs) {
+                    Image(systemName: "sparkle.magnifyingglass")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Search")
+                        .font(LisnFont.labelMedium())
+                }
+                .foregroundColor(LisnColors.textPrimary)
+                .padding(.horizontal, LisnSpacing.md)
+                .padding(.vertical, LisnSpacing.xs + 2)
+                .background(LisnColors.bgSecondary)
+                .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+            }
+            .buttonStyle(.plain)
 
-            LisnChip(
-                text: "Briefing",
-                icon: "sun.haze",
-                color: LisnColors.accent,
-                action: { showTodayBriefing = true }
-            )
+            // Briefing chip
+            Button {
+                LisnHaptics.light()
+                showTodayBriefing = true
+            } label: {
+                HStack(spacing: LisnSpacing.xs) {
+                    Image(systemName: "sun.max")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Briefing")
+                        .font(LisnFont.labelMedium())
+                }
+                .foregroundColor(LisnColors.textPrimary)
+                .padding(.horizontal, LisnSpacing.md)
+                .padding(.vertical, LisnSpacing.xs + 2)
+                .background(LisnColors.bgSecondary)
+                .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+            }
+            .buttonStyle(.plain)
 
             Spacer()
 
             // Pending Actions Badge
             if pendingActionsCount > 0 || pendingSuggestionsCount > 0 {
                 HStack(spacing: LisnSpacing.xxs) {
-                    Image(systemName: "bolt")
-                        .font(LisnFont.caption())
+                    Image(systemName: "bell.badge.fill")
+                        .font(.system(size: 11, weight: .semibold))
                     Text("\(pendingActionsCount + pendingSuggestionsCount)")
                         .font(LisnFont.captionBold())
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, LisnSpacing.xs + 2)
-                .padding(.vertical, LisnSpacing.xxs + 2)
-                .background(LisnColors.error)
+                .padding(.horizontal, LisnSpacing.sm)
+                .padding(.vertical, LisnSpacing.xs)
+                .background(LisnColors.accent)
                 .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+                .transition(.scale.combined(with: .opacity))
             }
         }
     }
@@ -155,7 +272,7 @@ struct HomeView: View {
     // MARK: - Status Label
 
     private var statusLabel: some View {
-        VStack(spacing: LisnSpacing.xxs) {
+        VStack(spacing: LisnSpacing.xs) {
             Text(statusText)
                 .font(LisnFont.titleSmall())
                 .foregroundColor(LisnColors.textPrimary)
@@ -163,85 +280,99 @@ struct HomeView: View {
             if isRecording {
                 Text(recordingManager.recordingDuration)
                     .font(LisnFont.mono())
-                    .foregroundColor(LisnColors.textSecondary)
+                    .foregroundColor(LisnColors.accent)
+                    .contentTransition(.numericText())
 
                 if recordingManager.isPausedForCall {
-                    Text("Will resume when call ends")
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.paused)
-                        .padding(.top, LisnSpacing.xxs)
+                    HStack(spacing: LisnSpacing.xxs) {
+                        Image(systemName: "phone.fill")
+                            .font(.system(size: 11))
+                        Text("Will resume when call ends")
+                            .font(LisnFont.caption())
+                    }
+                    .foregroundColor(LisnColors.paused)
+                    .padding(.top, LisnSpacing.xxs)
+                    .transition(.opacity)
                 }
+            } else if !hasResults {
+                Text("Tap the orb to begin")
+                    .font(LisnFont.caption())
+                    .foregroundColor(LisnColors.textTertiary)
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: isRecording)
     }
 
     // MARK: - Processing View
 
     private var processingView: some View {
-        GlassCard {
-            HStack(spacing: LisnSpacing.sm) {
+        HStack(spacing: LisnSpacing.md) {
+            ZStack {
+                Circle()
+                    .fill(LisnColors.accent.opacity(0.1))
+                    .frame(width: 40, height: 40)
+
                 ProgressView()
                     .tint(LisnColors.accent)
+            }
 
-                VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
-                    Text("Processing recording...")
-                        .font(LisnFont.labelLarge())
-                        .foregroundColor(LisnColors.textPrimary)
+            VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
+                Text("Processing")
+                    .font(LisnFont.labelLarge())
+                    .foregroundColor(LisnColors.textPrimary)
 
-                    Text("Transcribing and generating summary")
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.textSecondary)
-                }
+                Text("Transcribing and summarizing...")
+                    .font(LisnFont.caption())
+                    .foregroundColor(LisnColors.textSecondary)
+            }
+
+            Spacer()
+        }
+        .padding(LisnSpacing.md)
+        .background(LisnColors.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
+        .shadow(
+            color: LisnShadow.md.color,
+            radius: LisnShadow.md.radius,
+            x: LisnShadow.md.x,
+            y: LisnShadow.md.y
+        )
+    }
+
+    // MARK: - Summary Card
+
+    private var summaryCard: some View {
+        VStack(alignment: .leading, spacing: LisnSpacing.sm) {
+            HStack(spacing: LisnSpacing.xs) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(LisnColors.accent)
+
+                Text("Summary")
+                    .font(LisnFont.labelLarge())
+                    .foregroundColor(LisnColors.textPrimary)
 
                 Spacer()
-            }
-        }
-    }
 
-    // MARK: - Recent Result Preview
-
-    private var recentResultPreview: some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-                HStack {
-                    Image(systemName: "checkmark.circle")
-                        .foregroundColor(LisnColors.success)
-                    Text("Recording saved")
-                        .font(LisnFont.labelLarge())
-                        .foregroundColor(LisnColors.textPrimary)
-                    Spacer()
-                }
-
-                Text(recordingManager.summary)
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textSecondary)
-                    .lineLimit(3)
-            }
-        }
-    }
-
-    // MARK: - Bottom Stats
-
-    private var bottomStats: some View {
-        HStack(spacing: LisnSpacing.lg) {
-            if pendingActionsCount > 0 {
-                Label("\(pendingActionsCount) actions", systemImage: "bolt")
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textSecondary)
-            }
-
-            if pendingSuggestionsCount > 0 {
-                Label("\(pendingSuggestionsCount) suggestions", systemImage: "lightbulb")
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textSecondary)
-            }
-
-            if pendingActionsCount == 0 && pendingSuggestionsCount == 0 {
-                Label("All caught up!", systemImage: "checkmark.circle")
-                    .font(LisnFont.caption())
+                Image(systemName: "checkmark.seal.fill")
                     .foregroundColor(LisnColors.success)
+                    .font(.system(size: 14))
             }
+
+            Text(recordingManager.summary)
+                .font(LisnFont.bodyMedium())
+                .foregroundColor(LisnColors.textPrimary)
+                .lineSpacing(4)
         }
+        .padding(LisnSpacing.md)
+        .background(LisnColors.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
+        .shadow(
+            color: LisnShadow.sm.color,
+            radius: LisnShadow.sm.radius,
+            x: LisnShadow.sm.x,
+            y: LisnShadow.sm.y
+        )
     }
 
     // MARK: - Helpers
@@ -259,16 +390,31 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Computed Properties
-
     private var statusText: String {
         if recordingManager.isPausedForCall {
             return "Paused for Call"
         } else if isRecording {
-            return "Recording..."
+            return "Recording"
         } else {
-            return "Ready to Record"
+            return "Ready"
         }
+    }
+
+    private var greetingText: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        if hour < 12 {
+            return "Good morning"
+        } else if hour < 17 {
+            return "Good afternoon"
+        } else {
+            return "Good evening"
+        }
+    }
+
+    private var todayDateString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMM d"
+        return formatter.string(from: Date())
     }
 
     // MARK: - Actions
@@ -276,15 +422,20 @@ struct HomeView: View {
     private func toggleRecording() {
         if isRecording {
             LisnHaptics.success()
-            recordingManager.stopRecording()
-            isRecording = false
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                recordingManager.stopRecording()
+                isRecording = false
+            }
         } else {
             Task {
                 let granted = await recordingManager.requestMicrophonePermission()
                 if granted {
                     LisnHaptics.medium()
-                    recordingManager.startRecording()
-                    isRecording = true
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                        dismissedResults = false
+                        recordingManager.startRecording()
+                        isRecording = true
+                    }
                 } else {
                     showPermissionAlert = true
                 }

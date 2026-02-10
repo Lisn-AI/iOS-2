@@ -177,7 +177,7 @@ struct CalendarView: View {
                     }
                 }
                 .padding(.horizontal, LisnSpacing.md)
-                .padding(.bottom, LisnSpacing.xxl)
+                .padding(.bottom, 68)
             }
             .safeAreaInset(edge: .top) {
                 Text("Calendar")

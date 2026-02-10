@@ -1,48 +1,74 @@
 import SwiftUI
 
 /// Raised calendar button overlay that covers the native tab bar's center slot.
-/// The circle extends upward and a "Calendar" label sits at the tab bar text level,
-/// making it look like one enlarged tab bar button.
 struct RaisedCalendarButton: View {
     @Binding var selectedTab: MainTabView.Tab
+
+    @State private var isPressed = false
 
     var body: some View {
         Button {
             LisnHaptics.light()
             selectedTab = .calendar
         } label: {
-            VStack(spacing: 1) {
-                // Large raised circle — spans above and across the tab bar
+            VStack(spacing: 2) {
                 ZStack {
+                    // Outer ambient ring
                     Circle()
-                        .fill(LisnColors.accent)
-                        .frame(width: 72, height: 72)
+                        .fill(LisnColors.accent.opacity(0.08))
+                        .frame(width: 60, height: 60)
+
+                    // Main circle — warm dark brown
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.22, green: 0.18, blue: 0.14),
+                                    Color(red: 0.15, green: 0.12, blue: 0.10)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 52, height: 52)
                         .shadow(
-                            color: LisnShadow.glow.color,
-                            radius: LisnShadow.glow.radius,
-                            x: LisnShadow.glow.x,
-                            y: LisnShadow.glow.y
+                            color: Color.black.opacity(0.2),
+                            radius: 10,
+                            x: 0,
+                            y: 3
                         )
 
                     VStack(spacing: -2) {
                         Text(todayMonthAbbrev)
-                            .font(.system(size: 11, weight: .heavy))
-                            .foregroundColor(.white.opacity(0.85))
+                            .font(.system(size: 9, weight: .heavy))
+                            .foregroundColor(LisnColors.accent.opacity(0.8))
 
                         Text(todayDayNumber)
-                            .font(.system(size: 26, weight: .bold))
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
                     }
                 }
 
-                // Label aligned with other tab bar labels
                 Text("Calendar")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 9, weight: .medium))
                     .foregroundColor(selectedTab == .calendar ? LisnColors.textPrimary : LisnColors.textTertiary)
             }
         }
-        // Push down so circle extends well into the tab bar, covering icons area
-        .offset(y: 16)
+        .scaleEffect(isPressed ? 0.92 : 1.0)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
+                        isPressed = true
+                    }
+                }
+                .onEnded { _ in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
+                        isPressed = false
+                    }
+                }
+        )
+        .offset(y: 14)
     }
 
     // MARK: - Date Helpers

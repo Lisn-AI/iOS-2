@@ -9,6 +9,9 @@ final class Recording {
     var duration: TimeInterval
     var createdAt: Date = Date()
 
+    /// AI-generated descriptive title for this recording
+    var title: String?
+
     /// Relationship to transcription (deleted when recording is deleted)
     @Relationship(deleteRule: .cascade, inverse: \Transcription.recording)
     var transcription: Transcription?
@@ -20,9 +23,10 @@ final class Recording {
     /// Whether this recording has been synced to cloud
     var isSynced: Bool = false
 
-    init(date: Date, duration: TimeInterval) {
+    init(date: Date, duration: TimeInterval, title: String? = nil) {
         self.date = date
         self.duration = duration
+        self.title = title
     }
 }
 

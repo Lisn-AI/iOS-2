@@ -30,6 +30,11 @@ packages:
     url: https://github.com/google/GoogleSignIn-iOS.git
     from: 8.0.0
 
+  # Markdown rendering for chat
+  swift-markdown-ui:
+    url: https://github.com/gonzalezreal/swift-markdown-ui.git
+    from: 2.4.1
+
 
 schemes:
   Lisnai:
@@ -78,6 +83,9 @@ targets:
       - package: GoogleSignIn-iOS
         product: GoogleSignInSwift
 
+      # Markdown rendering
+      - package: swift-markdown-ui
+        product: MarkdownUI
       # EventKit (system framework for Reminders/Calendar)
       - sdk: EventKit.framework
 

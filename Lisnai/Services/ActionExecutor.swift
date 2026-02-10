@@ -28,11 +28,11 @@ class ActionExecutor: ObservableObject {
     func checkPermissions() {
         // Reminders permission
         let reminderStatus = EKEventStore.authorizationStatus(for: .reminder)
-        hasReminderAccess = reminderStatus == .fullAccess || reminderStatus == .authorized
+        hasReminderAccess = reminderStatus == .fullAccess
 
         // Calendar permission
         let calendarStatus = EKEventStore.authorizationStatus(for: .event)
-        hasCalendarAccess = calendarStatus == .fullAccess || calendarStatus == .authorized
+        hasCalendarAccess = calendarStatus == .fullAccess
 
         // Email capability (check if device can send email)
         canSendEmail = MFMailComposeViewController.canSendMail()
@@ -81,11 +81,10 @@ class ActionExecutor: ObservableObject {
         // Convert SuggestedAction to PendingAction format for unified execution
         let pendingAction = PendingAction(
             id: suggestionId,
+            skill: suggestedAction.skill,
+            tool: suggestedAction.tool,
             type: suggestedAction.tool,
-            params: suggestedAction.params.merging([
-                "skill": AnyCodable(suggestedAction.skill),
-                "tool": AnyCodable(suggestedAction.tool)
-            ]) { _, new in new },
+            params: suggestedAction.params,
             status: "pending",
             createdAt: ISO8601DateFormatter().string(from: Date())
         )
@@ -106,6 +105,8 @@ class ActionExecutor: ObservableObject {
 
         let pendingAction = PendingAction(
             id: permission.id,
+            skill: permission.skill,
+            tool: permission.tool,
             type: permission.tool,
             params: params,
             status: "approved",
@@ -115,46 +116,103 @@ class ActionExecutor: ObservableObject {
         return await executeAction(pendingAction)
     }
 
+    /// Normalize hallucinated skill names to registered ones
+    private func normalizeSkill(_ skill: String) -> String {
+        switch skill {
+        case "organization", "notes", "apple-notes":
+            return "apple-notes"
+        case "communication", "phone", "calls":
+            return "messaging"
+        case "reminder", "reminders", "apple-reminders":
+            return "apple-reminders"
+        case "calendar", "apple-calendar", "scheduling":
+            return "apple-calendar"
+        case "email-draft", "email":
+            return "messaging"
+        default:
+            return skill
+        }
+    }
+
+    /// Normalize hallucinated tool names to registered ones
+    private func normalizeTool(_ tool: String, skill: String) -> String {
+        switch tool {
+        case "note", "create_note", "add_note", "write_note":
+            return "create_note"
+        case "phone", "call", "make_call", "phone_call", "dial":
+            return "make_call"
+        case "reminder", "create_reminder", "add_reminder", "set_reminder":
+            return "create_reminder"
+        case "calendar", "create_event", "add_event", "schedule_event", "create_calendar_event":
+            return "create_event"
+        case "email", "send_email", "compose_email", "draft_email":
+            return "send_email"
+        case "message", "send_message", "sms", "text":
+            return "send_message"
+        default:
+            return tool
+        }
+    }
+
     /// Execute an action based on its type
     func executeAction(_ action: PendingAction) async -> ActionExecutionResult {
-        // Get tool type from params if available
-        let tool = action.params["tool"]?.stringValue?.lowercased() ?? action.type.lowercased()
-        let skill = action.params["skill"]?.stringValue?.lowercased() ?? ""
+        // Get tool type from params if available (broken into steps for Swift type-checker)
+        let toolFromAction: String = action.tool?.lowercased() ?? ""
+        let toolFromParams: String = action.params?["tool"]?.stringValue?.lowercased() ?? ""
+        let toolFromType: String = (action.type ?? "").lowercased()
+        let rawTool: String = !toolFromAction.isEmpty ? toolFromAction : (!toolFromParams.isEmpty ? toolFromParams : toolFromType)
 
-        // First check skill-based routing
+        let skillFromAction: String = action.skill?.lowercased() ?? ""
+        let skillFromParams: String = action.params?["skill"]?.stringValue?.lowercased() ?? ""
+        let rawSkill: String = !skillFromAction.isEmpty ? skillFromAction : skillFromParams
+
+        // Normalize hallucinated names to registered ones
+        let skill = normalizeSkill(rawSkill)
+        let tool = normalizeTool(rawTool, skill: skill)
+
+        print("[ActionExecutor] Routing action — raw: \(rawSkill):\(rawTool) → normalized: \(skill):\(tool)")
+
+        // Skill-based routing (using normalized names)
         switch skill {
         case "apple-reminders":
             return await createReminder(from: action)
         case "apple-calendar":
             return await createCalendarEvent(from: action)
-        case "email-draft", "email":
-            return await prepareEmailDraft(from: action)
+        case "apple-notes":
+            return await createNote(from: action)
         case "messaging":
-            if tool == "send_email" {
+            switch tool {
+            case "send_email":
                 return await prepareEmailDraft(from: action)
-            } else {
+            case "make_call":
+                return await makePhoneCall(from: action)
+            default:
                 return await prepareMessage(from: action)
             }
         default:
             break
         }
 
-        // Then check tool-based routing
+        // Tool-based routing fallback (using normalized names)
         switch tool {
-        case "reminder", "create_reminder", "add_reminder", "set_reminder":
+        case "create_reminder":
             return await createReminder(from: action)
-        case "calendar", "create_event", "add_event", "schedule_event", "create_calendar_event":
+        case "create_event":
             return await createCalendarEvent(from: action)
-        case "email", "send_email", "compose_email", "draft_email":
+        case "create_note":
+            return await createNote(from: action)
+        case "make_call":
+            return await makePhoneCall(from: action)
+        case "send_email":
             return await prepareEmailDraft(from: action)
-        case "message", "send_message", "sms", "text":
+        case "send_message":
             return await prepareMessage(from: action)
         default:
             break
         }
 
         // Finally try to infer from action type
-        switch action.type.lowercased() {
+        switch (action.type ?? "").lowercased() {
         case "reminder", "task_reminder", "call_reminder":
             return await createReminder(from: action)
         case "calendar", "event", "event_reminder":
@@ -163,10 +221,14 @@ class ActionExecutor: ObservableObject {
             return await prepareEmailDraft(from: action)
         case "message":
             return await prepareMessage(from: action)
+        case "call", "phone", "phone_call":
+            return await makePhoneCall(from: action)
+        case "note", "create_note":
+            return await createNote(from: action)
         default:
             return ActionExecutionResult(
                 success: false,
-                message: "Unknown action type: \(action.type) (skill: \(skill), tool: \(tool))",
+                message: "Unknown action type: \(action.displayType) (skill: \(skill), tool: \(tool))",
                 nativeItemId: nil
             )
         }
@@ -177,7 +239,7 @@ class ActionExecutor: ObservableObject {
     /// Create a reminder from a pending action
     func createReminder(from action: PendingAction) async -> ActionExecutionResult {
         print("[ActionExecutor] Creating reminder from action: \(action.id)")
-        print("[ActionExecutor] Params: \(action.params)")
+        print("[ActionExecutor] Params: \(action.params ?? [:])")
 
         // Check/request permission
         var hasAccess = hasReminderAccess
@@ -196,14 +258,10 @@ class ActionExecutor: ObservableObject {
         print("[ActionExecutor] Reminder access granted")
 
         // Extract parameters - try multiple possible keys
-        let title = action.params["title"]?.stringValue
-            ?? action.params["reminderTitle"]?.stringValue
-            ?? action.params["text"]?.stringValue
-            ?? action.params["name"]?.stringValue
-            ?? action.params["content"]?.stringValue
+        let title = extractParam(from: action, keys: ["title", "reminderTitle", "text", "name", "content"])
 
         guard let title = title, !title.isEmpty else {
-            print("[ActionExecutor] Missing reminder title. Available params: \(action.params.keys)")
+            print("[ActionExecutor] Missing reminder title. Available params: \(action.params?.keys.joined(separator: ", ") ?? "none")")
             return ActionExecutionResult(
                 success: false,
                 message: "Missing reminder title",
@@ -222,7 +280,7 @@ class ActionExecutor: ObservableObject {
         dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
         var dueDate: Date?
-        if let dueDateString = action.params["dueDateTime"]?.stringValue {
+        if let dueDateString = action.params?["dueDateTime"]?.stringValue {
             dueDate = dateFormatter.date(from: dueDateString)
             if dueDate == nil {
                 // Try without fractional seconds
@@ -230,7 +288,7 @@ class ActionExecutor: ObservableObject {
                 dueDate = dateFormatter.date(from: dueDateString)
             }
         }
-        if dueDate == nil, let dueDateString = action.params["dueDate"]?.stringValue {
+        if dueDate == nil, let dueDateString = action.params?["dueDate"]?.stringValue {
             dueDate = dateFormatter.date(from: dueDateString)
             if dueDate == nil {
                 dateFormatter.formatOptions = [.withInternetDateTime]
@@ -250,7 +308,7 @@ class ActionExecutor: ObservableObject {
         }
 
         // Set priority if provided
-        if let priorityString = action.params["priority"]?.stringValue {
+        if let priorityString = action.params?["priority"]?.stringValue {
             switch priorityString.lowercased() {
             case "high": reminder.priority = 1
             case "medium": reminder.priority = 5
@@ -260,10 +318,10 @@ class ActionExecutor: ObservableObject {
         }
 
         // Set notes if provided
-        var notes = action.params["notes"]?.stringValue ?? ""
+        var notes = action.params?["notes"]?.stringValue ?? ""
 
         // Add person info to notes if available
-        if let person = action.params["person"]?.stringValue {
+        if let person = action.params?["person"]?.stringValue {
             if !notes.isEmpty {
                 notes += "\n\n"
             }
@@ -275,7 +333,7 @@ class ActionExecutor: ObservableObject {
         }
 
         // Handle recurrence if specified
-        if let recurrence = action.params["recurrence"]?.stringValue {
+        if let recurrence = action.params?["recurrence"]?.stringValue {
             let recurrenceRule: EKRecurrenceRule?
             switch recurrence.lowercased() {
             case "daily":
@@ -337,7 +395,7 @@ class ActionExecutor: ObservableObject {
     /// Create a calendar event from a pending action
     func createCalendarEvent(from action: PendingAction) async -> ActionExecutionResult {
         print("[ActionExecutor] Creating calendar event from action: \(action.id)")
-        print("[ActionExecutor] Params: \(action.params)")
+        print("[ActionExecutor] Params: \(action.params ?? [:])")
 
         // Check/request permission
         var hasAccess = hasCalendarAccess
@@ -356,13 +414,10 @@ class ActionExecutor: ObservableObject {
         print("[ActionExecutor] Calendar access granted")
 
         // Extract title - try multiple possible keys
-        let title = action.params["title"]?.stringValue
-            ?? action.params["eventTitle"]?.stringValue
-            ?? action.params["name"]?.stringValue
-            ?? action.params["summary"]?.stringValue
+        let title = extractParam(from: action, keys: ["title", "eventTitle", "name", "summary"])
 
         guard let title = title, !title.isEmpty else {
-            print("[ActionExecutor] Missing event title. Available params: \(action.params.keys)")
+            print("[ActionExecutor] Missing event title. Available params: \(action.params?.keys.joined(separator: ", ") ?? "none")")
             return ActionExecutionResult(
                 success: false,
                 message: "Missing event title",
@@ -371,11 +426,7 @@ class ActionExecutor: ObservableObject {
         }
 
         // Extract start time - try multiple possible keys
-        let startTimeString = action.params["startTime"]?.stringValue
-            ?? action.params["start"]?.stringValue
-            ?? action.params["startDate"]?.stringValue
-            ?? action.params["dateTime"]?.stringValue
-            ?? action.params["date"]?.stringValue
+        let startTimeString = extractParam(from: action, keys: ["startTime", "start", "startDate", "dateTime", "date"])
 
         // Parse the start date
         var startDate: Date?
@@ -412,10 +463,10 @@ class ActionExecutor: ObservableObject {
         event.calendar = eventStore.defaultCalendarForNewEvents
 
         // Set end date
-        if let endTimeString = action.params["endTime"]?.stringValue,
+        if let endTimeString = action.params?["endTime"]?.stringValue,
            let endDate = ISO8601DateFormatter().date(from: endTimeString) {
             event.endDate = endDate
-        } else if let durationMinutes = action.params["duration"]?.intValue {
+        } else if let durationMinutes = action.params?["duration"]?.intValue {
             event.endDate = startDate.addingTimeInterval(TimeInterval(durationMinutes * 60))
         } else {
             // Default 1 hour duration
@@ -423,12 +474,12 @@ class ActionExecutor: ObservableObject {
         }
 
         // Set location if provided
-        if let location = action.params["location"]?.stringValue {
+        if let location = action.params?["location"]?.stringValue {
             event.location = location
         }
 
         // Set notes if provided
-        if let notes = action.params["notes"]?.stringValue {
+        if let notes = action.params?["notes"]?.stringValue {
             event.notes = notes
         }
 
@@ -470,13 +521,13 @@ class ActionExecutor: ObservableObject {
         }
 
         // Check if email address is missing
-        if action.params["needsEmail"]?.boolValue == true ||
-           action.params["needsEmail"]?.stringValue == "true" {
+        if action.params?["needsEmail"]?.boolValue == true ||
+           action.params?["needsEmail"]?.stringValue == "true" {
             // Store the action for later completion with email address
             self.pendingEmailAction = action
             return ActionExecutionResult(
                 success: true,
-                message: "Email address needed for \(action.params["recipientName"]?.stringValue ?? "recipient")",
+                message: "Email address needed for \(action.params?["recipientName"]?.stringValue ?? "recipient")",
                 nativeItemId: nil,
                 requiresUserInput: .emailAddress
             )
@@ -484,9 +535,9 @@ class ActionExecutor: ObservableObject {
 
         // Get recipients
         var recipients: [String] = []
-        if let toArray = action.params["to"]?.value as? [Any] {
+        if let toArray = action.params?["to"]?.value as? [Any] {
             recipients = toArray.compactMap { ($0 as? String) ?? (($0 as? AnyCodable)?.stringValue) }
-        } else if let toEmail = action.params["to"]?.stringValue {
+        } else if let toEmail = action.params?["to"]?.stringValue {
             recipients = [toEmail]
         }
 
@@ -513,17 +564,17 @@ class ActionExecutor: ObservableObject {
     /// Get email draft details for showing mail composer
     func getEmailDraftDetails(from action: PendingAction) -> EmailDraftDetails? {
         var recipients: [String] = []
-        if let toArray = action.params["to"]?.value as? [Any] {
+        if let toArray = action.params?["to"]?.value as? [Any] {
             recipients = toArray.compactMap { ($0 as? String) ?? (($0 as? AnyCodable)?.stringValue) }
-        } else if let toEmail = action.params["to"]?.stringValue {
+        } else if let toEmail = action.params?["to"]?.stringValue {
             recipients = [toEmail]
         }
 
-        let subject = action.params["subject"]?.stringValue ?? ""
-        let body = action.params["body"]?.stringValue ?? ""
+        let subject = action.params?["subject"]?.stringValue ?? ""
+        let body = action.params?["body"]?.stringValue ?? ""
 
         var ccRecipients: [String] = []
-        if let ccArray = action.params["cc"]?.value as? [Any] {
+        if let ccArray = action.params?["cc"]?.value as? [Any] {
             ccRecipients = ccArray.compactMap { ($0 as? String) ?? (($0 as? AnyCodable)?.stringValue) }
         }
 
@@ -566,12 +617,14 @@ class ActionExecutor: ObservableObject {
         }
 
         // Create updated action with email
-        var updatedParams = action.params
+        var updatedParams = action.params ?? [:]
         updatedParams["to"] = AnyCodable([email])
         updatedParams["needsEmail"] = AnyCodable(false)
 
         let updatedAction = PendingAction(
             id: action.id,
+            skill: action.skill,
+            tool: action.tool,
             type: action.type,
             params: updatedParams,
             status: action.status,
@@ -591,7 +644,7 @@ class ActionExecutor: ObservableObject {
 
     /// Prepare a message - opens Messages app with pre-filled content
     func prepareMessage(from action: PendingAction) async -> ActionExecutionResult {
-        guard let recipient = action.params["recipient"]?.stringValue else {
+        guard let recipient = action.params?["recipient"]?.stringValue else {
             return ActionExecutionResult(
                 success: false,
                 message: "No message recipient specified",
@@ -599,7 +652,7 @@ class ActionExecutor: ObservableObject {
             )
         }
 
-        let content = action.params["content"]?.stringValue ?? ""
+        let content = action.params?["content"]?.stringValue ?? ""
 
         // Create SMS URL
         var urlString = "sms:\(recipient)"
@@ -628,6 +681,109 @@ class ActionExecutor: ObservableObject {
         )
     }
 
+    // MARK: - Phone Calls
+
+    /// Initiate a phone call via tel:// URL scheme
+    func makePhoneCall(from action: PendingAction) async -> ActionExecutionResult {
+        let contact = extractParam(from: action, keys: ["contact", "phoneNumber", "number", "recipient", "person", "name"])
+
+        guard let contact = contact, !contact.isEmpty else {
+            return ActionExecutionResult(
+                success: false,
+                message: "No phone number or contact specified",
+                nativeItemId: nil,
+                requiresUserInput: .phoneNumber
+            )
+        }
+
+        // Determine the call type
+        let app = action.params?["app"]?.stringValue?.lowercased() ?? "phone"
+
+        let urlScheme: String
+        switch app {
+        case "facetime":
+            urlScheme = "facetime://\(contact)"
+        case "facetime-audio":
+            urlScheme = "facetime-audio://\(contact)"
+        default:
+            // Sanitize phone number for tel:// — keep digits, +, and *
+            let sanitized = contact.filter { $0.isNumber || $0 == "+" || $0 == "*" || $0 == "#" }
+            if sanitized.isEmpty {
+                // Contact name rather than number — can't use tel://
+                // Try to open Contacts search instead
+                return ActionExecutionResult(
+                    success: false,
+                    message: "Cannot call '\(contact)' — please provide a phone number. You can find their number in Contacts and call from there.",
+                    nativeItemId: nil
+                )
+            }
+            urlScheme = "tel://\(sanitized)"
+        }
+
+        guard let url = URL(string: urlScheme) else {
+            return ActionExecutionResult(
+                success: false,
+                message: "Could not create call URL",
+                nativeItemId: nil
+            )
+        }
+
+        guard UIApplication.shared.canOpenURL(url) else {
+            return ActionExecutionResult(
+                success: false,
+                message: "This device cannot make phone calls",
+                nativeItemId: nil
+            )
+        }
+
+        await UIApplication.shared.open(url)
+        await completeActionOnBackend(action)
+
+        return ActionExecutionResult(
+            success: true,
+            message: "Calling \(contact)",
+            nativeItemId: nil
+        )
+    }
+
+    // MARK: - Notes
+
+    /// Create a note — opens share sheet since there's no direct Apple Notes API
+    @Published var pendingNoteText: String?
+    @Published var showNoteShareSheet = false
+
+    func createNote(from action: PendingAction) async -> ActionExecutionResult {
+        let title = action.params?["title"]?.stringValue ?? ""
+        let content = extractParam(from: action, keys: ["content", "text", "body", "notes"]) ?? ""
+
+        guard !title.isEmpty || !content.isEmpty else {
+            return ActionExecutionResult(
+                success: false,
+                message: "Missing note content",
+                nativeItemId: nil
+            )
+        }
+
+        // Build the note text
+        var noteText = ""
+        if !title.isEmpty {
+            noteText += title + "\n\n"
+        }
+        noteText += content
+
+        // Store the note text and trigger share sheet in UI
+        pendingNoteText = noteText
+        showNoteShareSheet = true
+
+        await completeActionOnBackend(action)
+
+        return ActionExecutionResult(
+            success: true,
+            message: "Note ready — choose where to save it",
+            nativeItemId: nil
+        )
+    }
+
     // MARK: - Deep Link Handling
 
     /// Handle a deep link from the backend
@@ -639,7 +795,7 @@ class ActionExecutor: ObservableObject {
             return nil
         }
 
-        let actionType = url.pathComponents[1]
+        let _ = url.pathComponents[1]
         let actionId = url.pathComponents[2]
 
         // Fetch action details from backend
@@ -664,6 +820,16 @@ class ActionExecutor: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    /// Helper to extract the first non-nil, non-empty string param from a list of keys
+    private func extractParam(from action: PendingAction, keys: [String]) -> String? {
+        for key in keys {
+            if let value = action.params?[key]?.stringValue, !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
 
     private func completeActionOnBackend(_ action: PendingAction) async {
         do {

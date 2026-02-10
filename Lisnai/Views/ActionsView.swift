@@ -72,7 +72,7 @@ struct ActionsView: View {
             }
             .sheet(isPresented: $showEmailInputSheet) {
                 EmailInputSheet(
-                    recipientName: pendingEmailAction?.params["recipientName"]?.stringValue ?? "recipient",
+                    recipientName: pendingEmailAction?.params?["recipientName"]?.stringValue ?? "recipient",
                     emailText: $emailInputText,
                     onSubmit: { email in
                         Task {
@@ -96,6 +96,19 @@ struct ActionsView: View {
                         Task {
                             await handleMailComposerResult(result)
                         }
+                    }
+                }
+            }
+            .sheet(isPresented: Binding(
+                get: { ActionExecutor.shared.showNoteShareSheet },
+                set: { ActionExecutor.shared.showNoteShareSheet = $0 }
+            )) {
+                if let noteText = ActionExecutor.shared.pendingNoteText {
+                    NoteShareSheet(text: noteText) {
+                        ActionExecutor.shared.showNoteShareSheet = false
+                        ActionExecutor.shared.pendingNoteText = nil
+                        successMessage = "Note shared successfully"
+                        showSuccessAlert = true
                     }
                 }
             }
@@ -138,7 +151,7 @@ struct ActionsView: View {
 
     private func handleEmailAddressSubmitted(_ email: String) async {
         showEmailInputSheet = false
-        guard let action = pendingEmailAction else { return }
+        guard pendingEmailAction != nil else { return }
 
         let executor = ActionExecutor.shared
         let result = await executor.addEmailAndExecute(email)
@@ -288,7 +301,7 @@ struct ActionsView: View {
             }
             .padding(.horizontal, LisnSpacing.md)
             .padding(.top, LisnSpacing.xs)
-            .padding(.bottom, LisnSpacing.xxxl)
+            .padding(.bottom, 68)
         }
         .background(LisnColors.bgPrimary)
     }
@@ -468,9 +481,8 @@ struct PendingActionRow: View {
     }
 
     private var actionIcon: String {
-        // Check skill/tool first for more accurate icon
-        let skill = action.params["skill"]?.stringValue?.lowercased() ?? ""
-        let tool = action.params["tool"]?.stringValue?.lowercased() ?? ""
+        let skill = (action.skill ?? action.params?["skill"]?.stringValue ?? "").lowercased()
+        let tool = (action.tool ?? action.params?["tool"]?.stringValue ?? "").lowercased()
 
         switch (skill, tool) {
         case ("email-draft", _), ("messaging", "send_email"):
@@ -484,7 +496,8 @@ struct PendingActionRow: View {
         case ("messaging", "send_message"):
             return "message.fill"
         default:
-            switch action.type.lowercased() {
+            let fallback = (action.type ?? action.displayType).lowercased()
+            switch fallback {
             case "reminder": return "bell.fill"
             case "calendar": return "calendar"
             case "note": return "note.text"
@@ -496,9 +509,8 @@ struct PendingActionRow: View {
     }
 
     private var actionTitle: String {
-        // Check skill/tool first for more accurate title
-        let skill = action.params["skill"]?.stringValue?.lowercased() ?? ""
-        let tool = action.params["tool"]?.stringValue?.lowercased() ?? ""
+        let skill = (action.skill ?? action.params?["skill"]?.stringValue ?? "").lowercased()
+        let tool = (action.tool ?? action.params?["tool"]?.stringValue ?? "").lowercased()
 
         switch (skill, tool) {
         case ("email-draft", _), ("messaging", "send_email"):
@@ -512,38 +524,40 @@ struct PendingActionRow: View {
         case ("messaging", "send_message"):
             return "Send Message"
         default:
-            switch action.type.lowercased() {
+            let fallback = (action.type ?? action.displayType).lowercased()
+            switch fallback {
             case "reminder": return "Create Reminder"
             case "calendar": return "Create Event"
             case "note": return "Create Note"
             case "message": return "Send Message"
             case "email": return "Compose Email"
-            default: return action.type.capitalized
+            default: return action.displayType.capitalized
             }
         }
     }
 
     private var actionDescription: String {
+        let params = action.params ?? [:]
         // For emails, show subject
-        if let subject = action.params["subject"]?.stringValue, !subject.isEmpty {
-            if let recipientName = action.params["recipientName"]?.stringValue {
+        if let subject = params["subject"]?.stringValue, !subject.isEmpty {
+            if let recipientName = params["recipientName"]?.stringValue {
                 return "To \(recipientName): \(subject)"
             }
             return subject
         }
         // For reminders/calendar, show title
-        if let title = action.params["title"]?.stringValue {
+        if let title = params["title"]?.stringValue {
             return title
         }
         // For messages, show content preview
-        if let content = action.params["content"]?.stringValue {
+        if let content = params["content"]?.stringValue {
             return content
         }
         // For recipient info without other details
-        if let recipient = action.params["recipient"]?.stringValue {
+        if let recipient = params["recipient"]?.stringValue {
             return "To: \(recipient)"
         }
-        if let recipientName = action.params["recipientName"]?.stringValue {
+        if let recipientName = params["recipientName"]?.stringValue {
             return "To: \(recipientName)"
         }
         return "Tap to execute"
@@ -551,11 +565,11 @@ struct PendingActionRow: View {
 
     private var formattedDate: String {
         let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: action.createdAt) {
+        if let date = formatter.date(from: action.createdAt ?? "") {
             let relative = RelativeDateTimeFormatter()
             return relative.localizedString(for: date, relativeTo: Date())
         }
-        return action.createdAt
+        return action.createdAt ?? ""
     }
 }
 

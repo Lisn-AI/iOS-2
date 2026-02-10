@@ -37,13 +37,16 @@ class APIService: ObservableObject {
     /// Get the current user's Firebase ID token for API authentication
     private func getAuthToken() async throws -> String {
         guard let user = Auth.auth().currentUser else {
+            print("[APIService] ERROR: Auth.auth().currentUser is nil - user not signed in!")
             throw APIError.notAuthenticated
         }
 
         do {
             let token = try await user.getIDToken()
+            print("[APIService] Got auth token for user \(user.uid) (\(token.prefix(20))...)")
             return token
         } catch {
+            print("[APIService] Token error: \(error)")
             throw APIError.tokenError(error.localizedDescription)
         }
     }
@@ -70,6 +73,7 @@ class APIService: ObservableObject {
             request.httpBody = body
         }
 
+        print("[APIService] \(method) \(endpoint)")
         return request
     }
 
@@ -82,11 +86,14 @@ class APIService: ObservableObject {
                 throw APIError.invalidResponse
             }
 
+            print("[APIService] Response: \(httpResponse.statusCode) for \(request.url?.path ?? "?")")
+
             // Handle error responses
             switch httpResponse.statusCode {
             case 200...299:
                 break // Success
             case 401:
+                print("[APIService] 401 - Auth rejected by backend")
                 throw APIError.notAuthenticated
             case 403:
                 throw APIError.forbidden
@@ -94,6 +101,7 @@ class APIService: ObservableObject {
                 throw APIError.notFound
             case 500...599:
                 let errorBody = String(data: data, encoding: .utf8) ?? "Server error"
+                print("[APIService] Server error: \(errorBody)")
                 throw APIError.serverError(httpResponse.statusCode, errorBody)
             default:
                 let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
@@ -158,6 +166,78 @@ class APIService: ObservableObject {
         return try await execute(request)
     }
 
+    /// SSE event types from the streaming chat endpoint
+    enum ChatStreamEvent: Sendable {
+        case sources([String])
+        case delta(String)
+        case done
+        case error(String)
+    }
+
+    /// Stream a chat response via SSE, returns an AsyncStream of events
+    func chatStream(
+        message: String,
+        history: [ChatHistoryItem] = []
+    ) async throws -> AsyncStream<ChatStreamEvent> {
+        let body = ChatRequest(message: message, history: history)
+        var request = try await createRequest(
+            endpoint: "/api/chat/stream",
+            method: "POST",
+            body: try encoder.encode(body)
+        )
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw APIError.serverError(httpResponse.statusCode, "Stream failed with status \(httpResponse.statusCode)")
+        }
+
+        return AsyncStream { continuation in
+            let task = Task {
+                do {
+                    for try await line in bytes.lines {
+                        guard line.hasPrefix("data: ") else { continue }
+                        let jsonStr = String(line.dropFirst(6))
+
+                        guard let data = jsonStr.data(using: .utf8),
+                              let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let type = event["type"] as? String else { continue }
+
+                        switch type {
+                        case "sources":
+                            if let sources = event["sources"] as? [String] {
+                                continuation.yield(.sources(sources))
+                            }
+                        case "delta":
+                            if let text = event["text"] as? String {
+                                continuation.yield(.delta(text))
+                            }
+                        case "done":
+                            continuation.yield(.done)
+                        case "error":
+                            let errorMsg = event["error"] as? String ?? "Unknown stream error"
+                            continuation.yield(.error(errorMsg))
+                        default:
+                            break
+                        }
+                    }
+                } catch {
+                    continuation.yield(.error(error.localizedDescription))
+                }
+                continuation.finish()
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
     // MARK: - Memories
 
     /// Get memories with optional filters
@@ -198,7 +278,8 @@ class APIService: ObservableObject {
     /// Get a single memory by ID
     func getMemory(id: String) async throws -> Memory {
         let request = try await createRequest(endpoint: "/api/memories/\(id)")
-        return try await execute(request)
+        let wrapper: MemoryWrapper = try await execute(request)
+        return wrapper.memory
     }
 
     // MARK: - Actions
@@ -520,6 +601,8 @@ struct HealthChecks: Codable {
 struct ProcessResult: Codable {
     let memoryId: String
     let sessionId: String
+    let title: String?
+    let summary: String?
     let intent: IntentResult
     let actionResult: ActionResult?
     let chatResponse: String?
@@ -557,16 +640,29 @@ struct ChatResponse: Codable {
 
 struct MemoriesResponse: Codable {
     let memories: [Memory]
+    let total: Int?
+    let limit: Int?
+    let offset: Int?
+}
+
+struct MemoryWrapper: Codable {
+    let memory: Memory
 }
 
 struct Memory: Codable {
     let id: String
-    let userId: String
+    let userId: String?
     let timestamp: String
-    let rawTranscript: String
+    let rawTranscript: String?
+    let transcript: String?
     let topics: [String]?
     let importanceScore: Double?
     let sessionId: String?
+
+    /// Returns the transcript text regardless of which field the backend uses
+    var transcriptText: String {
+        rawTranscript ?? transcript ?? ""
+    }
 }
 
 struct SearchResponse: Codable {
@@ -588,10 +684,20 @@ struct PendingActionsResponse: Codable {
 
 struct PendingAction: Codable, Identifiable {
     let id: String
-    let type: String
-    let params: [String: AnyCodable]
+    let skill: String?
+    let tool: String?
+    let type: String?
+    let params: [String: AnyCodable]?
     let status: String
-    let createdAt: String
+    let createdAt: String?
+
+    /// Display name for the action type
+    var displayType: String {
+        if let skill = skill, let tool = tool {
+            return "\(skill):\(tool)"
+        }
+        return type ?? skill ?? tool ?? "unknown"
+    }
 }
 
 struct PermissionRulesResponse: Codable {

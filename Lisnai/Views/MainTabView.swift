@@ -14,6 +14,7 @@ struct MainTabView: View {
     @State private var showMemorySearch = false
     @State private var showPermissionRules = false
     @StateObject private var actionsViewModel = ActionsViewModel()
+    @StateObject private var keyboardObserver = KeyboardObserver()
 
     enum Tab: String, CaseIterable {
         case home = "Home"
@@ -24,21 +25,11 @@ struct MainTabView: View {
 
         var icon: String {
             switch self {
-            case .home: return "mic"
-            case .history: return "clock"
+            case .home: return "waveform.circle"
+            case .history: return "clock.arrow.circlepath"
             case .calendar: return "calendar"
-            case .chat: return "bubble.left.and.bubble.right"
-            case .actions: return "bolt"
-            }
-        }
-
-        var imageAsset: String {
-            switch self {
-            case .home: return "tab-home"
-            case .history: return "tab-history"
-            case .calendar: return "calendar"
-            case .chat: return "tab-chat"
-            case .actions: return "tab-actions"
+            case .chat: return "bubble.left.and.text.bubble.right"
+            case .actions: return "bolt.ring.closed"
             }
         }
     }
@@ -59,34 +50,28 @@ struct MainTabView: View {
             ZStack {
                 TabView(selection: $selectedTab) {
                     HomeView(showSettings: $showSettings)
-                        .tabItem {
-                            Label(Tab.home.rawValue, image: Tab.home.imageAsset)
-                        }
+                        .toolbar(.hidden, for: .tabBar)
+                        .tabItem { Label(Tab.home.rawValue, systemImage: Tab.home.icon) }
                         .tag(Tab.home)
 
                     HistoryView()
-                        .tabItem {
-                            Label(Tab.history.rawValue, image: Tab.history.imageAsset)
-                        }
+                        .toolbar(.hidden, for: .tabBar)
+                        .tabItem { Label(Tab.history.rawValue, systemImage: Tab.history.icon) }
                         .tag(Tab.history)
 
                     CalendarView()
-                        .tabItem {
-                            // Placeholder — the raised circle covers this spot
-                            Label("", systemImage: "")
-                        }
+                        .toolbar(.hidden, for: .tabBar)
+                        .tabItem { Label("", systemImage: "") }
                         .tag(Tab.calendar)
 
                     ChatView(modelContext: modelContext)
-                        .tabItem {
-                            Label(Tab.chat.rawValue, image: Tab.chat.imageAsset)
-                        }
+                        .toolbar(.hidden, for: .tabBar)
+                        .tabItem { Label(Tab.chat.rawValue, systemImage: Tab.chat.icon) }
                         .tag(Tab.chat)
 
                     ActionsView(viewModel: actionsViewModel)
-                        .tabItem {
-                            Label(Tab.actions.rawValue, image: Tab.actions.imageAsset)
-                        }
+                        .toolbar(.hidden, for: .tabBar)
+                        .tabItem { Label(Tab.actions.rawValue, systemImage: Tab.actions.icon) }
                         .tag(Tab.actions)
                 }
                 .allowsHitTesting(!showSettings)
@@ -103,10 +88,14 @@ struct MainTabView: View {
                         }
                 }
             }
-            // Raised calendar button — just the circle, centered on the tab bar
+            // Pill tab bar floats at the bottom
             .overlay(alignment: .bottom) {
-                RaisedCalendarButton(selectedTab: $selectedTab)
+                if !keyboardObserver.isKeyboardVisible {
+                    PillTabBar(selectedTab: $selectedTab)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .animation(.easeInOut(duration: 0.25), value: keyboardObserver.isKeyboardVisible)
             .offset(x: menuOffset)
         }
         .onChange(of: showSettings) { _, isOpen in
@@ -260,5 +249,99 @@ struct MainTabView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             action()
         }
+    }
+}
+
+// MARK: - Pill-Shaped Floating Tab Bar
+
+private struct PillTabBar: View {
+    @Binding var selectedTab: MainTabView.Tab
+
+    /// Tabs excluding calendar (calendar gets the raised button)
+    private let sideTabs: [(tab: MainTabView.Tab, position: TabPosition)] = [
+        (.home, .left),
+        (.history, .left),
+        (.chat, .right),
+        (.actions, .right),
+    ]
+
+    enum TabPosition { case left, right }
+
+    var body: some View {
+        ZStack {
+            // The pill bar
+            HStack(spacing: 0) {
+                // Left tabs
+                ForEach(sideTabs.filter { $0.position == .left }, id: \.tab) { item in
+                    tabButton(item.tab)
+                }
+
+                // Empty spacer for the calendar slot
+                Spacer()
+                    .frame(width: 48)
+
+                // Right tabs
+                ForEach(sideTabs.filter { $0.position == .right }, id: \.tab) { item in
+                    tabButton(item.tab)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(LisnColors.bgPrimary)
+                    .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 4)
+                    .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: 1)
+            )
+
+            // Calendar button overlaid on top, exceeding the pill
+            RaisedCalendarButton(selectedTab: $selectedTab)
+                .offset(y: -20)
+        }
+        .padding(.horizontal, 28)
+    }
+
+    private func tabButton(_ tab: MainTabView.Tab) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                selectedTab = tab
+            }
+            LisnHaptics.light()
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 18, weight: .medium))
+                    .symbolEffect(.bounce, value: selectedTab == tab)
+
+                Text(tab.rawValue)
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .foregroundStyle(selectedTab == tab ? LisnColors.textPrimary : LisnColors.textTertiary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+        }
+    }
+}
+
+// Make Tab hashable for ForEach
+extension MainTabView.Tab: Hashable {}
+
+// MARK: - Keyboard Observer
+
+import Combine
+
+final class KeyboardObserver: ObservableObject {
+    @Published var isKeyboardVisible = false
+
+    private var cancellables = Set<AnyCancellable>()
+
+    init() {
+        NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)
+            .sink { [weak self] _ in self?.isKeyboardVisible = true }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)
+            .sink { [weak self] _ in self?.isKeyboardVisible = false }
+            .store(in: &cancellables)
     }
 }

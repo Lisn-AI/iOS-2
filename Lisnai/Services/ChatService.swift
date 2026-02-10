@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import FirebaseAuth
 
 /// Service for AI chat using the main backend's RAG-enhanced chat
 /// All processing happens server-side - memories are searched and context is injected automatically
@@ -8,7 +9,12 @@ class ChatService: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var isLoading: Bool = false
     @Published var error: String?
-    @Published var lastSources: [String] = []  // Memory IDs used for last response
+    @Published var lastSources: [String] = []
+
+    /// The text currently being streamed in from the backend
+    @Published var streamingText: String = ""
+    /// Whether we're actively receiving stream chunks
+    @Published var isStreaming: Bool = false
 
     private let modelContext: ModelContext
     private let api = APIService.shared
@@ -19,7 +25,7 @@ class ChatService: ObservableObject {
 
     // MARK: - Public Methods
 
-    /// Send a message and get a response from the AI
+    /// Send a message and stream the response from the AI
     func sendMessage(_ content: String) async {
         // Add user message
         let userMessage = ChatMessage(content: content, isUser: true)
@@ -27,43 +33,102 @@ class ChatService: ObservableObject {
         modelContext.insert(userMessage)
 
         isLoading = true
+        isStreaming = false
+        streamingText = ""
         error = nil
         lastSources = []
 
         do {
-            // Build conversation history from recent messages
-            let history = messages.suffix(10).map { message in
+            // Build conversation history from recent messages (limit to 6)
+            let history = messages.suffix(6).map { message in
                 ChatHistoryItem(
                     role: message.isUser ? "user" : "assistant",
                     content: message.content
                 )
             }
 
-            // Call main backend's RAG-enhanced chat
-            let response = try await api.chat(message: content, history: Array(history))
+            print("[ChatService] Sending streaming chat request...")
 
-            // Store sources for UI display
-            lastSources = response.sources ?? []
-
-            // Add assistant message
-            let assistantMessage = ChatMessage(content: response.response, isUser: false)
+            // Create a placeholder assistant message for the streaming response
+            let assistantMessage = ChatMessage(content: "", isUser: false)
             messages.append(assistantMessage)
-            modelContext.insert(assistantMessage)
 
-            try modelContext.save()
+            var fullText = ""
+
+            let stream = try await api.chatStream(
+                message: content,
+                history: Array(history)
+            )
+
+            for await event in stream {
+                switch event {
+                case .sources(let sources):
+                    lastSources = sources
+                    print("[ChatService] Sources: \(sources)")
+
+                case .delta(let chunk):
+                    if !isStreaming {
+                        isStreaming = true
+                        isLoading = false
+                    }
+                    fullText += chunk
+                    streamingText = fullText
+                    // Update the last message in-place
+                    assistantMessage.content = fullText
+
+                case .done:
+                    isStreaming = false
+                    streamingText = ""
+                    // Persist the complete message
+                    assistantMessage.content = fullText
+                    modelContext.insert(assistantMessage)
+                    try? modelContext.save()
+                    print("[ChatService] Stream complete (\(fullText.count) chars)")
+
+                case .error(let errorMsg):
+                    self.error = errorMsg
+                    isStreaming = false
+                    isLoading = false
+                    // Remove the empty placeholder if we got an error before any text
+                    if assistantMessage.content.isEmpty {
+                        messages.removeLast()
+                    }
+                    print("[ChatService] Stream ERROR: \(errorMsg)")
+                }
+            }
+
+            // If stream finished without a .done event
+            if isStreaming {
+                isStreaming = false
+                streamingText = ""
+                isLoading = false
+                if !fullText.isEmpty {
+                    assistantMessage.content = fullText
+                    modelContext.insert(assistantMessage)
+                    try? modelContext.save()
+                }
+            }
+
         } catch let apiError as APIError {
             self.error = apiError.localizedDescription
-            print("Chat error: \(apiError)")
+            isStreaming = false
+            isLoading = false
+            if let last = messages.last, !last.isUser, last.content.isEmpty {
+                messages.removeLast()
+            }
+            print("[ChatService] API ERROR: \(apiError)")
         } catch {
             self.error = error.localizedDescription
-            print("Chat error: \(error)")
+            isStreaming = false
+            isLoading = false
+            if let last = messages.last, !last.isUser, last.content.isEmpty {
+                messages.removeLast()
+            }
+            print("[ChatService] ERROR: \(error)")
         }
-
-        isLoading = false
     }
 
     /// Process a transcript and optionally get a response
-    /// This is called after voice recording to send the transcript to the backend
     func processTranscript(_ transcript: String, sessionId: String? = nil) async -> ProcessResult? {
         isLoading = true
         error = nil
@@ -71,7 +136,6 @@ class ChatService: ObservableObject {
         do {
             let result = try await api.processTranscript(transcript, sessionId: sessionId)
 
-            // If there's a chat response, add it to messages
             if let chatResponse = result.chatResponse, !chatResponse.isEmpty {
                 let assistantMessage = ChatMessage(content: chatResponse, isUser: false)
                 messages.append(assistantMessage)
@@ -84,20 +148,29 @@ class ChatService: ObservableObject {
 
         } catch let apiError as APIError {
             self.error = apiError.localizedDescription
-            print("Process transcript error: \(apiError)")
+            print("[ChatService] Process transcript API ERROR: \(apiError)")
         } catch {
             self.error = error.localizedDescription
-            print("Process transcript error: \(error)")
+            print("[ChatService] Process transcript ERROR: \(error)")
         }
 
         isLoading = false
         return nil
     }
 
-    /// Clear chat history
+    /// Clear chat history (both in-memory and persisted)
     func clearHistory() {
+        do {
+            try modelContext.delete(model: ChatMessage.self)
+            try modelContext.save()
+        } catch {
+            print("[ChatService] Failed to delete persisted chat history: \(error)")
+        }
         messages.removeAll()
         lastSources = []
+        streamingText = ""
+        isStreaming = false
+        self.error = nil
     }
 
     /// Load chat history from local storage
@@ -125,7 +198,3 @@ class ChatService: ObservableObject {
         }
     }
 }
-
-// MARK: - ChatMessage Model (SwiftData)
-// Note: This should match the existing model in Models/ChatMessage.swift
-// Keeping here for reference only - use the model from Models folder

@@ -34,6 +34,7 @@ struct HistoryView: View {
                     .background(.regularMaterial)
             }
             .toolbar(.hidden, for: .navigationBar)
+            .contentMargins(.bottom, 68, for: .scrollContent)
         }
         .background(LisnColors.bgPrimary)
     }
@@ -119,31 +120,34 @@ struct RecordingRow: View {
 
             // Info
             VStack(alignment: .leading, spacing: 4) {
-                // Time
-                Text(formatTime(recording.date))
+                // Title or time
+                Text(recording.title ?? formatTime(recording.date))
                     .font(LisnFont.bodyMedium())
                     .fontWeight(.semibold)
                     .foregroundColor(LisnColors.textPrimary)
+                    .lineLimit(1)
 
-                // Summary preview or duration
+                // Time + duration subtitle
+                HStack(spacing: LisnSpacing.xs) {
+                    Text(formatTime(recording.date))
+                        .font(LisnFont.caption())
+                        .foregroundColor(LisnColors.textTertiary)
+
+                    if recording.duration > 0 {
+                        Text("·")
+                            .foregroundColor(LisnColors.textTertiary)
+                        Text(recording.formattedDuration)
+                            .font(LisnFont.caption())
+                            .foregroundColor(LisnColors.textTertiary)
+                    }
+                }
+
+                // Summary preview
                 if let summary = recording.summary {
                     Text(summary.text)
                         .font(LisnFont.caption())
                         .foregroundColor(LisnColors.textSecondary)
                         .lineLimit(2)
-                } else if recording.duration > 0 {
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock")
-                            .font(.system(size: 11))
-                        Text(recording.formattedDuration)
-                    }
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textSecondary)
-                } else {
-                    Text("Processing...")
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.textSecondary)
-                        .italic()
                 }
             }
 
@@ -201,7 +205,7 @@ struct RecordingDetailView: View {
                 .padding()
             }
         }
-        .navigationTitle("Recording")
+        .navigationTitle(recording.title ?? "Recording")
         .navigationBarTitleDisplayMode(.inline)
         .background(LisnColors.bgPrimary)
     }
@@ -222,8 +226,7 @@ struct RecordingDetailView: View {
     @ViewBuilder
     private var transcriptionContent: some View {
         if let transcription = recording.transcription {
-            Text(transcription.text)
-                .font(LisnFont.bodyLarge())
+            FormattedTranscriptionView(text: transcription.text)
                 .textSelection(.enabled)
         } else {
             Text("No transcription available")

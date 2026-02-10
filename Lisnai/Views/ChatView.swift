@@ -1,6 +1,6 @@
 import SwiftUI
 import SwiftData
-import UIKit
+import MarkdownUI
 
 struct ChatView: View {
     @Environment(\.modelContext) private var modelContext
@@ -15,16 +15,14 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Messages area
             messagesScrollView
 
-            // Error display
             if let error = chatService.error {
                 errorBanner(error)
             }
 
-            // Input bar
             inputBar
+                .padding(.bottom, isInputFocused ? 0 : 68)
         }
         .background(LisnColors.bgPrimary)
         .safeAreaInset(edge: .top) {
@@ -64,30 +62,30 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: LisnSpacing.xxxs) {
-                    if chatService.messages.isEmpty && !chatService.isLoading {
+                    if chatService.messages.isEmpty && !chatService.isLoading && !chatService.isStreaming {
                         emptyStateView
                             .padding(.top, LisnSpacing.xxxl)
                     } else {
-                        // Group messages by date
                         ForEach(groupedMessages, id: \.date) { group in
-                            // Date header
                             DateHeader(date: group.date)
                                 .padding(.top, LisnSpacing.md)
                                 .padding(.bottom, LisnSpacing.xs)
 
-                            // Messages for this date
                             ForEach(group.messages, id: \.id) { message in
-                                MessageBubble(message: message)
-                                    .id(message.id)
-                                    .transition(.asymmetric(
-                                        insertion: .scale(scale: 0.9).combined(with: .opacity),
-                                        removal: .opacity
-                                    ))
+                                MessageBubble(
+                                    message: message,
+                                    isStreaming: !message.isUser && message.id == chatService.messages.last?.id && chatService.isStreaming
+                                )
+                                .id(message.id)
+                                .transition(.asymmetric(
+                                    insertion: .scale(scale: 0.9).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
                             }
                         }
 
-                        // Typing indicator
-                        if chatService.isLoading {
+                        // Typing indicator (before stream starts)
+                        if chatService.isLoading && !chatService.isStreaming {
                             HStack {
                                 TypingIndicator()
                                 Spacer()
@@ -97,7 +95,6 @@ struct ChatView: View {
                             .id("typing")
                         }
 
-                        // Bottom anchor for scrolling
                         Color.clear
                             .frame(height: 1)
                             .id("bottom")
@@ -112,13 +109,16 @@ struct ChatView: View {
                     scrollToBottom(proxy: proxy, animated: true)
                 }
             }
+            .onChange(of: chatService.streamingText) { _, _ in
+                // Auto-scroll as streaming text arrives
+                scrollToBottom(proxy: proxy, animated: false)
+            }
             .onChange(of: chatService.isLoading) { _, isLoading in
                 if isLoading {
                     scrollToBottom(proxy: proxy, animated: true)
                 }
             }
             .onAppear {
-                // Scroll to bottom on appear
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     scrollToBottom(proxy: proxy, animated: false)
                 }
@@ -147,7 +147,6 @@ struct ChatView: View {
 
     private var emptyStateView: some View {
         VStack(spacing: LisnSpacing.lg) {
-            // Icon
             ZStack {
                 Circle()
                     .fill(LisnColors.bgSecondary)
@@ -170,7 +169,6 @@ struct ChatView: View {
                     .padding(.horizontal, LisnSpacing.xxl)
             }
 
-            // Suggestion chips
             VStack(spacing: 10) {
                 Text("Try asking:")
                     .font(LisnFont.caption())
@@ -236,7 +234,6 @@ struct ChatView: View {
 
     private var inputBar: some View {
         HStack(alignment: .bottom, spacing: LisnSpacing.sm) {
-            // Text field
             HStack(alignment: .bottom, spacing: LisnSpacing.xs) {
                 TextField("Message...", text: $inputText, axis: .vertical)
                     .font(LisnFont.bodyLarge())
@@ -246,17 +243,16 @@ struct ChatView: View {
                     .padding(.vertical, 10)
                     .padding(.leading, LisnSpacing.md)
 
-                // Send button inside the field
                 Button(action: sendMessage) {
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: 20))
                         .foregroundColor(
-                            inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chatService.isLoading
+                            inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chatService.isLoading || chatService.isStreaming
                             ? Color.gray.opacity(0.5)
                             : LisnColors.accent
                         )
                 }
-                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chatService.isLoading)
+                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chatService.isLoading || chatService.isStreaming)
                 .padding(.trailing, 10)
                 .padding(.bottom, 10)
             }
@@ -292,15 +288,14 @@ struct ChatView: View {
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
-        let anchor: UnitPoint = .bottom
-        let id = chatService.isLoading ? "typing" : "bottom"
+        let id = chatService.isLoading && !chatService.isStreaming ? "typing" : "bottom"
 
         if animated {
             withAnimation(.easeOut(duration: 0.25)) {
-                proxy.scrollTo(id, anchor: anchor)
+                proxy.scrollTo(id, anchor: .bottom)
             }
         } else {
-            proxy.scrollTo(id, anchor: anchor)
+            proxy.scrollTo(id, anchor: .bottom)
         }
     }
 }
@@ -335,6 +330,7 @@ struct DateHeader: View {
 
 struct MessageBubble: View {
     let message: ChatMessage
+    var isStreaming: Bool = false
 
     private var bubbleShape: UnevenRoundedRectangle {
         if message.isUser {
@@ -378,26 +374,41 @@ struct MessageBubble: View {
 
             VStack(alignment: message.isUser ? .trailing : .leading, spacing: LisnSpacing.xxs) {
                 // Message content
-                Text(message.content)
-                    .font(LisnFont.bodyLarge())
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(message.isUser ? LisnColors.accent : LisnColors.bgElevated)
-                    .foregroundColor(message.isUser ? .white : LisnColors.textPrimary)
-                    .clipShape(bubbleShape)
-                    .shadow(
-                        color: LisnShadow.sm.color,
-                        radius: LisnShadow.sm.radius,
-                        x: LisnShadow.sm.x,
-                        y: LisnShadow.sm.y
-                    )
+                Group {
+                    if message.isUser {
+                        // User messages: plain text
+                        Text(message.content)
+                            .font(LisnFont.bodyLarge())
+                    } else {
+                        // AI messages: render markdown
+                        Markdown(message.content)
+                            .markdownTheme(.lisnAI)
+                            .markdownCodeSyntaxHighlighter(.plain)
+                    }
+                }
+                .textSelection(.enabled)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(message.isUser ? LisnColors.accent : LisnColors.bgElevated)
+                .foregroundColor(message.isUser ? .white : LisnColors.textPrimary)
+                .clipShape(bubbleShape)
+                .shadow(
+                    color: LisnShadow.sm.color,
+                    radius: LisnShadow.sm.radius,
+                    x: LisnShadow.sm.x,
+                    y: LisnShadow.sm.y
+                )
 
-                // Timestamp
-                Text(message.formattedTime)
-                    .font(LisnFont.labelSmall())
-                    .foregroundColor(LisnColors.textTertiary)
-                    .padding(.horizontal, LisnSpacing.xxs)
+                // Timestamp + streaming indicator
+                HStack(spacing: 4) {
+                    if isStreaming {
+                        StreamingCursor()
+                    }
+                    Text(message.formattedTime)
+                        .font(LisnFont.labelSmall())
+                        .foregroundColor(LisnColors.textTertiary)
+                }
+                .padding(.horizontal, LisnSpacing.xxs)
             }
 
             if !message.isUser {
@@ -407,6 +418,122 @@ struct MessageBubble: View {
         .padding(.horizontal, LisnSpacing.sm)
         .padding(.vertical, LisnSpacing.xxs)
     }
+}
+
+// MARK: - Streaming Cursor
+
+struct StreamingCursor: View {
+    @State private var visible = true
+
+    var body: some View {
+        Circle()
+            .fill(LisnColors.accent)
+            .frame(width: 6, height: 6)
+            .opacity(visible ? 1 : 0)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+                    visible = false
+                }
+            }
+    }
+}
+
+// MARK: - MarkdownUI Theme
+
+extension MarkdownUI.Theme {
+    /// Custom theme matching Lisn's design system
+    static let lisnAI = Theme()
+        .text {
+            ForegroundColor(LisnColors.textPrimary)
+            FontSize(15)
+        }
+        .strong {
+            FontWeight(.semibold)
+        }
+        .emphasis {
+            FontStyle(.italic)
+        }
+        .code {
+            FontFamilyVariant(.monospaced)
+            FontSize(13)
+            ForegroundColor(LisnColors.accent)
+            BackgroundColor(LisnColors.bgSecondary)
+        }
+        .codeBlock { configuration in
+            ScrollView(.horizontal, showsIndicators: false) {
+                configuration.label
+                    .markdownTextStyle {
+                        FontFamilyVariant(.monospaced)
+                        FontSize(13)
+                        ForegroundColor(LisnColors.textPrimary)
+                    }
+            }
+            .padding(12)
+            .background(LisnColors.bgSecondary)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .blockquote { configuration in
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(LisnColors.accent.opacity(0.5))
+                    .frame(width: 3)
+                configuration.label
+                    .markdownTextStyle { ForegroundColor(LisnColors.textSecondary) }
+                    .padding(.leading, 10)
+            }
+        }
+        .listItem { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontSize(15)
+                    ForegroundColor(LisnColors.textPrimary)
+                }
+        }
+        .heading1 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontWeight(.bold)
+                    FontSize(20)
+                    ForegroundColor(LisnColors.textPrimary)
+                }
+                .padding(.bottom, 4)
+        }
+        .heading2 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(17)
+                    ForegroundColor(LisnColors.textPrimary)
+                }
+                .padding(.bottom, 2)
+        }
+        .heading3 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(15)
+                    ForegroundColor(LisnColors.textPrimary)
+                }
+        }
+        .link {
+            ForegroundColor(LisnColors.accent)
+        }
+        .paragraph { configuration in
+            configuration.label
+                .fixedSize(horizontal: false, vertical: true)
+        }
+}
+
+// MARK: - Plain Syntax Highlighter (no-op)
+
+struct PlainCodeSyntaxHighlighter: CodeSyntaxHighlighter {
+    func highlightCode(_ code: String, language: String?) -> Text {
+        Text(code)
+    }
+}
+
+extension CodeSyntaxHighlighter where Self == PlainCodeSyntaxHighlighter {
+    static var plain: PlainCodeSyntaxHighlighter { PlainCodeSyntaxHighlighter() }
 }
 
 // MARK: - Typing Indicator
