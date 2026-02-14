@@ -20,6 +20,10 @@ final class Recording {
     @Relationship(deleteRule: .cascade, inverse: \Summary.recording)
     var summary: Summary?
 
+    /// Relationship to AI insight (deleted when recording is deleted)
+    @Relationship(deleteRule: .cascade)
+    var insight: Insight?
+
     /// Whether this recording has been synced to cloud
     var isSynced: Bool = false
 

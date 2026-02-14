@@ -137,6 +137,24 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .navigateToHome)) { _ in
             selectedTab = .home
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
+            handleOpenChat(notification)
+        }
+    }
+
+    private func handleOpenChat(_ notification: Notification) {
+        let title = notification.userInfo?["title"] as? String
+        let summary = notification.userInfo?["summary"] as? String
+        selectedTab = .chat
+        if let title = title, let summary = summary {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                NotificationCenter.default.post(
+                    name: .chatWithContext,
+                    object: nil,
+                    userInfo: ["title": title, "summary": summary]
+                )
+            }
+        }
     }
 
     // MARK: - Side Menu

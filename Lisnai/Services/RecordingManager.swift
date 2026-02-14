@@ -11,11 +11,15 @@ import FirebaseAuth
 class RecordingManager: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var isPausedForCall = false  // Tracks if recording is paused due to phone call
+    @Published var isPausedManually = false // Tracks if user manually paused recording
     @Published var recordingDuration = "00:00:00"
     @Published var transcription = ""
     @Published var summary = ""
     @Published var isProcessing = false
     @Published var audioLevel: CGFloat = 0
+
+    /// Whether recording is paused (either manually or for a call)
+    var isPaused: Bool { isPausedForCall || isPausedManually }
 
     /// ModelContext for saving to SwiftData (set from the view)
     var modelContext: ModelContext?
@@ -44,11 +48,29 @@ class RecordingManager: NSObject, ObservableObject {
     // Guard flag: prevents config change handler from restarting engine during active interruption
     private var isSuspendedForInterruption = false
 
+    // Throttle audio level updates to ~15fps instead of ~60fps (reduces main thread pressure)
+    private var lastAudioLevelUpdate: CFAbsoluteTime = 0
+    private let audioLevelUpdateInterval: CFAbsoluteTime = 1.0 / 15.0
+
     // CallKit observer for detecting phone calls (more reliable than audio session interruption notifications)
     private let callObserver = CXCallObserver()
 
     // Live Activity for showing pause/resume UI in Dynamic Island
     private var recordingActivity: Activity<RecordingActivityAttributes>?
+
+    // Chunk processing state
+    private var chunkTimer: Timer?
+    private var currentChunkIndex: Int = 0
+    private var currentChunkStartTime: TimeInterval = 0
+    private var recordingSessionId: String = ""
+    private var accumulatedTranscript: String = ""
+    private let chunkIntervalSeconds: TimeInterval = 300 // 5 minutes
+    private var isProcessingChunk = false
+    private var chunkRetryQueue: [(index: Int, cafURL: URL, startTime: TimeInterval, endTime: TimeInterval)] = []
+
+    // Live suggestion state
+    private var activeSuggestion: LiveSuggestion?
+    private var suggestionDismissTimer: Timer?
 
     // Services
     // FluidAudio (on-device, free, but less accurate on short phrases)
@@ -83,12 +105,56 @@ class RecordingManager: NSObject, ObservableObject {
             name: Notification.Name("ResumeRecordingFromLiveActivity"),
             object: nil
         )
-        print("Live Activity resume observer set up")
+
+        // Listen for pause request from Live Activity
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePauseRequest),
+            name: Notification.Name("PauseRecordingFromLiveActivity"),
+            object: nil
+        )
+
+        // Listen for discard request from Live Activity
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDiscardRequest),
+            name: Notification.Name("DiscardRecordingFromLiveActivity"),
+            object: nil
+        )
+
+        // Listen for suggestion dismiss from Live Activity
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDismissSuggestion),
+            name: Notification.Name("DismissSuggestionFromLiveActivity"),
+            object: nil
+        )
+
+        // Listen for suggestion action execution from Live Activity
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleExecuteSuggestionAction),
+            name: Notification.Name("ExecuteSuggestionFromLiveActivity"),
+            object: nil
+        )
+
+        print("Live Activity resume/pause/discard/suggestion observers set up")
+
+        // Kill any zombie Live Activities from previous sessions (crash, force-quit, etc.)
+        Task {
+            await Self.endAllRecordingActivities()
+            print("Live Activity: Cleaned up stale activities on launch")
+        }
     }
 
     /// Handle resume request from Live Activity button tap (fallback manual resume)
     @objc private func handleLiveActivityResumeRequest() {
         print("Live Activity: Resume button tapped!")
+
+        if isRecording, isPausedManually {
+            resumeRecording()
+            return
+        }
 
         guard isRecording, isPausedForCall else {
             print("Live Activity: Cannot resume - isRecording: \(isRecording), isPausedForCall: \(isPausedForCall)")
@@ -98,6 +164,121 @@ class RecordingManager: NSObject, ObservableObject {
         // Request background execution time and attempt to resume
         // The resume flow will update the Live Activity to show "resumed" feedback
         resumeRecordingAfterCall()
+    }
+
+    /// Handle pause request from Live Activity
+    @objc private func handlePauseRequest() {
+        print("Live Activity: Pause button tapped!")
+        pauseRecording()
+    }
+
+    /// Handle discard request from Live Activity (app will open for confirmation)
+    @objc private func handleDiscardRequest() {
+        print("Live Activity: Discard button tapped!")
+        // Post a notification that HomeView listens for to show the confirmation alert
+        NotificationCenter.default.post(name: Notification.Name("ShowDiscardConfirmation"), object: nil)
+    }
+
+    // MARK: - Live Suggestion Handling
+
+    /// Handle a live suggestion received from the backend during recording
+    private func handleLiveSuggestion(_ suggestion: LiveSuggestion) {
+        activeSuggestion = suggestion
+
+        // Update Live Activity to show suggestion banner (Swiggy-style expanding)
+        updateLiveActivityToSuggestion(suggestion)
+
+        // Auto-dismiss after expiresIn seconds (default 120)
+        suggestionDismissTimer?.invalidate()
+        suggestionDismissTimer = Timer.scheduledTimer(
+            timeInterval: TimeInterval(suggestion.expiresIn),
+            target: self,
+            selector: #selector(autoDismissSuggestion),
+            userInfo: nil,
+            repeats: false
+        )
+
+        print("[LiveSuggestion] Surfaced: \(suggestion.title)")
+    }
+
+    /// Dismiss the current suggestion and revert Live Activity to recording state
+    private func dismissSuggestion() {
+        suggestionDismissTimer?.invalidate()
+        suggestionDismissTimer = nil
+        activeSuggestion = nil
+
+        // Revert Live Activity back to recording state
+        guard let activity = recordingActivity else { return }
+        let state = RecordingActivityAttributes.ContentState(
+            state: .recording,
+            pausedAtDuration: "",
+            message: "Recording"
+        )
+        Task {
+            await activity.update(
+                ActivityContent(state: state, staleDate: nil),
+                alertConfiguration: nil
+            )
+        }
+        print("[LiveSuggestion] Dismissed, reverted to recording")
+    }
+
+    /// Auto-dismiss timer handler
+    @objc private func autoDismissSuggestion() {
+        dismissSuggestion()
+    }
+
+    /// Handle dismiss from Live Activity intent
+    @objc private func handleDismissSuggestion() {
+        print("Live Activity: Suggestion dismiss tapped!")
+        dismissSuggestion()
+    }
+
+    /// Handle execute action from Live Activity intent
+    @objc private func handleExecuteSuggestionAction() {
+        print("Live Activity: Suggestion action tapped!")
+        guard let suggestion = activeSuggestion else { return }
+
+        // Dismiss the suggestion UI first
+        dismissSuggestion()
+
+        // If it has an action skill, post notification for the app to handle
+        if let skill = suggestion.actionSkill {
+            NotificationCenter.default.post(
+                name: Notification.Name("ExecuteSuggestionAction"),
+                object: nil,
+                userInfo: [
+                    "skill": skill,
+                    "title": suggestion.title,
+                    "body": suggestion.body,
+                ]
+            )
+        }
+    }
+
+    /// Update Live Activity to show a suggestion banner with alert configuration
+    private func updateLiveActivityToSuggestion(_ suggestion: LiveSuggestion) {
+        guard let activity = recordingActivity else { return }
+
+        let state = RecordingActivityAttributes.ContentState(
+            state: .suggestion,
+            pausedAtDuration: "",
+            message: "Recording",
+            suggestionTitle: suggestion.title,
+            suggestionBody: suggestion.body,
+            suggestionType: suggestion.type
+        )
+
+        Task {
+            await activity.update(
+                ActivityContent(state: state, staleDate: nil),
+                alertConfiguration: AlertConfiguration(
+                    title: LocalizedStringResource(stringLiteral: suggestion.title),
+                    body: LocalizedStringResource(stringLiteral: suggestion.body),
+                    sound: .default
+                )
+            )
+        }
     }
 
     deinit {
@@ -295,6 +476,159 @@ class RecordingManager: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Manual Pause / Resume / Discard
+
+    /// Manually pause recording — keeps engine alive, closes audio file, freezes timer
+    func pauseRecording() {
+        guard isRecording, !isPausedManually, !isPausedForCall else {
+            print("PauseRecording: Cannot pause - isRecording: \(isRecording), isPausedManually: \(isPausedManually), isPausedForCall: \(isPausedForCall)")
+            return
+        }
+
+        // Save elapsed time
+        if let startTime = recordingStartTime {
+            elapsedTimeBeforePause += Date().timeIntervalSince(startTime)
+        }
+
+        // Stop timer
+        durationTimer?.invalidate()
+        durationTimer = nil
+
+        // Close current audio file to finalize this segment
+        audioWriteQueue.sync {
+            self.currentAudioFile = nil
+        }
+
+        isPausedManually = true
+
+        // Update Live Activity to manual pause state
+        updateLiveActivityToManualPause()
+
+        print("PauseRecording: Recording paused manually (segment \(currentSegmentIndex) saved)")
+    }
+
+    /// Resume recording after manual pause
+    func resumeRecording() {
+        guard isRecording, isPausedManually else {
+            print("ResumeRecording: Cannot resume - isRecording: \(isRecording), isPausedManually: \(isPausedManually)")
+            return
+        }
+
+        print("ResumeRecording: Resuming from manual pause...")
+
+        Task {
+            let success = await attemptStartNewSegmentAfterManualPause()
+
+            if success {
+                isPausedManually = false
+                recordingStartTime = Date()
+                startDurationTimer()
+                updateLiveActivityToRecording()
+                print("ResumeRecording: Recording resumed successfully")
+            } else {
+                print("ResumeRecording: Failed to resume recording")
+            }
+        }
+    }
+
+    /// Discard recording — tear down everything without processing
+    func discardRecording() {
+        print("DiscardRecording: Discarding recording...")
+
+        // Stop chunk timer
+        chunkTimer?.invalidate()
+        chunkTimer = nil
+
+        // Stop engine and remove tap
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
+
+        // Close audio file
+        audioWriteQueue.sync {
+            self.currentAudioFile = nil
+        }
+
+        // Reset all state
+        isRecording = false
+        isPausedManually = false
+        isPausedForCall = false
+        isSuspendedForInterruption = false
+        audioLevel = 0
+        durationTimer?.invalidate()
+        durationTimer = nil
+
+        // Delete all segment files
+        for segmentURL in recordingSegments {
+            try? FileManager.default.removeItem(at: segmentURL)
+        }
+        print("DiscardRecording: Deleted \(recordingSegments.count) segment file(s)")
+
+        // Reset segment state
+        recordingSegments = []
+        currentSegmentIndex = 0
+        elapsedTimeBeforePause = 0
+        recordingStartTime = nil
+        recordingDuration = "00:00:00"
+
+        // End Live Activity
+        endRecordingLiveActivity()
+
+        // If chunks were already sent to backend, send discard signal
+        if currentChunkIndex > 0 {
+            let sessionId = recordingSessionId
+            Task {
+                await sendDiscardSignal(sessionId: sessionId)
+            }
+        }
+
+        print("DiscardRecording: Recording discarded")
+    }
+
+    /// Attempt to start a new audio segment after manual pause (no retry loop needed since engine is still alive)
+    private func attemptStartNewSegmentAfterManualPause() async -> Bool {
+        guard let engine = audioEngine else {
+            print("ManualResume: No engine available")
+            return false
+        }
+
+        do {
+            let inputNode = engine.inputNode
+            let format = inputNode.outputFormat(forBus: 0)
+            try openNewSegmentFile(format: format)
+
+            // Engine may still be running — try to start it (no-op if already running)
+            if !engine.isRunning {
+                try engine.start()
+            }
+
+            return true
+        } catch {
+            print("ManualResume: Failed to start new segment: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Send discard signal to backend to clean up any chunks already sent
+    private func sendDiscardSignal(sessionId: String) async {
+        let request = ProcessChunkRequest(
+            recordingSessionId: sessionId,
+            chunkIndex: -1,
+            transcript: "",
+            isFinal: true,
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            chunkStartTime: nil,
+            chunkEndTime: nil
+        )
+
+        do {
+            let _ = try await APIService.shared.processChunk(request)
+            print("[Discard] Backend notified for session \(sessionId)")
+        } catch {
+            print("[Discard] Failed to notify backend: \(error.localizedDescription)")
+        }
+    }
+
     func startRecording() {
         // Setup audio session before first recording
         do {
@@ -307,6 +641,7 @@ class RecordingManager: NSObject, ObservableObject {
         // Reset pause tracking and segments for new recording session
         elapsedTimeBeforePause = 0
         isPausedForCall = false
+        isPausedManually = false
         isSuspendedForInterruption = false
         recordingSegments = []
         currentSegmentIndex = 0
@@ -330,8 +665,11 @@ class RecordingManager: NSObject, ObservableObject {
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { [weak self] buffer, _ in
                 guard let self else { return }
 
-                // Compute RMS audio level for orb visualization
-                if let channelData = buffer.floatChannelData?[0] {
+                // Compute RMS audio level for orb visualization (throttled to ~15fps)
+                let now = CFAbsoluteTimeGetCurrent()
+                if now - self.lastAudioLevelUpdate >= self.audioLevelUpdateInterval,
+                   let channelData = buffer.floatChannelData?[0] {
+                    self.lastAudioLevelUpdate = now
                     let frameCount = Int(buffer.frameLength)
                     var sumOfSquares: Float = 0
                     for i in 0..<frameCount {
@@ -339,11 +677,9 @@ class RecordingManager: NSObject, ObservableObject {
                         sumOfSquares += sample * sample
                     }
                     let rms = sqrt(sumOfSquares / Float(max(frameCount, 1)))
-                    // Convert to 0–1 range (typical speech RMS ~0.01–0.1)
                     let normalized = CGFloat(min(rms * 10, 1.0))
 
                     Task { @MainActor in
-                        // Low-pass filter for smooth animation
                         self.audioLevel = self.audioLevel * 0.7 + normalized * 0.3
                     }
                 }
@@ -368,6 +704,21 @@ class RecordingManager: NSObject, ObservableObject {
         // Start Live Activity while app is in foreground (minimal UI during recording)
         // This MUST be done here so we can UPDATE it later when a call comes in
         startRecordingLiveActivity()
+
+        // Initialize chunk processing for long recordings
+        recordingSessionId = UUID().uuidString
+        currentChunkIndex = 0
+        currentChunkStartTime = 0
+        accumulatedTranscript = ""
+        chunkRetryQueue = []
+
+        // Start chunk timer — fires every 5 minutes to export and process a chunk
+        chunkTimer = Timer.scheduledTimer(withTimeInterval: chunkIntervalSeconds, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.exportCurrentChunk()
+            }
+        }
+        print("Chunk timer started (interval: \(chunkIntervalSeconds)s, sessionId: \(recordingSessionId))")
     }
 
     /// Opens a new audio file for the next recording segment
@@ -389,6 +740,10 @@ class RecordingManager: NSObject, ObservableObject {
     }
 
     func stopRecording() {
+        // Stop chunk timer
+        chunkTimer?.invalidate()
+        chunkTimer = nil
+
         // Stop engine and remove tap
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
@@ -401,6 +756,7 @@ class RecordingManager: NSObject, ObservableObject {
 
         isRecording = false
         isPausedForCall = false
+        isPausedManually = false
         isSuspendedForInterruption = false
         audioLevel = 0
         durationTimer?.invalidate()
@@ -418,10 +774,24 @@ class RecordingManager: NSObject, ObservableObject {
         elapsedTimeBeforePause = 0
         recordingStartTime = nil
 
-        // Process all segments (uses capturedDuration)
+        let hadChunks = currentChunkIndex > 0
+        let capturedSessionId = recordingSessionId
+        let capturedChunkIndex = currentChunkIndex
+
+        // Process recording
         if !recordingSegments.isEmpty {
             Task {
-                await processRecordingSegments(duration: capturedDuration)
+                if hadChunks {
+                    // Multi-chunk: process the final segment then send finalization
+                    await processRemainingSegmentAsChunk(
+                        sessionId: capturedSessionId,
+                        chunkIndex: capturedChunkIndex,
+                        duration: capturedDuration
+                    )
+                } else {
+                    // Single segment: use existing flow (backward compatible)
+                    await processRecordingSegments(duration: capturedDuration)
+                }
             }
         }
 
@@ -559,17 +929,65 @@ class RecordingManager: NSObject, ObservableObject {
 
             transcription = labeledTranscript
 
-            // Step 4: Summary is generated by the backend during transcript processing
-            // (included in ProcessResult.summary from the entity extraction agent)
-            var summaryText = ""
-
-            // Step 5: Save to SwiftData
-            await saveToSwiftData(
-                date: date,
-                duration: totalDuration,
-                transcriptionText: labeledTranscript,
-                summaryText: summaryText
+            // Step 4: Send through chunk endpoint for unified processing (includes insight generation)
+            let chunkRequest = ProcessChunkRequest(
+                recordingSessionId: recordingSessionId,
+                chunkIndex: 0,
+                transcript: labeledTranscript,
+                isFinal: true,
+                timestamp: ISO8601DateFormatter().string(from: Date()),
+                chunkStartTime: 0,
+                chunkEndTime: totalDuration
             )
+
+            var summaryText = ""
+            var chunkResult: ChunkProcessResult?
+            do {
+                let result = try await APIService.shared.processChunk(chunkRequest)
+                summaryText = result.summary ?? ""
+                summary = summaryText
+                chunkResult = result
+                print("[SingleChunk] Backend processed: title=\(result.title ?? "nil"), hasInsight=\(result.insight != nil)")
+            } catch {
+                print("[SingleChunk] Backend processing failed: \(error.localizedDescription)")
+            }
+
+            // Step 5: Save to SwiftData directly (don't use saveToSwiftData which double-sends to backend)
+            if let context = modelContext {
+                let recording = Recording(date: date, duration: totalDuration, title: chunkResult?.title)
+
+                let transcriptionModel = Transcription(date: date, text: labeledTranscript, recording: recording)
+                recording.transcription = transcriptionModel
+
+                if !summaryText.isEmpty {
+                    let summaryModel = Summary(date: date, text: summaryText, recording: recording)
+                    recording.summary = summaryModel
+                }
+
+                // Attach insight if available
+                if let insightData = chunkResult?.insight {
+                    let insight = Insight(
+                        date: date,
+                        setting: insightData.setting,
+                        settingEmoji: insightData.settingEmoji,
+                        mood: insightData.mood,
+                        thirdPersonTake: insightData.thirdPersonTake,
+                        correlations: insightData.correlations?.map { InsightCorrelation(memoryDate: $0.memoryDate, connection: $0.connection) } ?? [],
+                        actionableIdeas: insightData.actionableIdeas ?? []
+                    )
+                    recording.insight = insight
+                    insight.recording = recording
+                    print("[SingleChunk] Insight attached to recording")
+                }
+
+                context.insert(recording)
+                do {
+                    try context.save()
+                    print("[SingleChunk] SwiftData saved: title=\(recording.title ?? "nil"), hasInsight=\(recording.insight != nil)")
+                } catch {
+                    print("[SingleChunk] SwiftData save failed: \(error.localizedDescription)")
+                }
+            }
 
             // Step 6: Delete the audio file (we don't need it anymore)
             deleteAudioFile(at: fileURL)
@@ -581,6 +999,299 @@ class RecordingManager: NSObject, ObservableObject {
         }
 
         isProcessing = false
+    }
+
+    // MARK: - Chunk Processing
+
+    /// Export the current audio segment as a chunk without stopping recording
+    /// Same pattern as phone call interruption: close file, open new one
+    private func exportCurrentChunk() {
+        guard isRecording, !isPausedForCall, !isPausedManually, !isProcessingChunk else {
+            print("[Chunk] Skipping export - isRecording:\(isRecording) isPausedForCall:\(isPausedForCall) isPausedManually:\(isPausedManually) isProcessing:\(isProcessingChunk)")
+            return
+        }
+
+        guard let engine = audioEngine else {
+            print("[Chunk] No audio engine available")
+            return
+        }
+
+        let chunkIndex = currentChunkIndex
+        let chunkStartTime = currentChunkStartTime
+        let chunkEndTime = elapsedTimeBeforePause + (recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0)
+
+        // Close current audio file (finalize this segment)
+        audioWriteQueue.sync {
+            self.currentAudioFile = nil
+        }
+
+        // Grab the last segment URL (the chunk we just closed)
+        guard let chunkCAFURL = recordingSegments.last else {
+            print("[Chunk] No segment file available")
+            return
+        }
+
+        // Open a new segment file immediately (microsecond gap)
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        do {
+            try openNewSegmentFile(format: format)
+        } catch {
+            print("[Chunk] Failed to open new segment: \(error.localizedDescription)")
+            return
+        }
+
+        // Update chunk state for next interval
+        currentChunkIndex += 1
+        currentChunkStartTime = chunkEndTime
+
+        print("[Chunk] Exported chunk \(chunkIndex) (segments: \(recordingSegments.count))")
+
+        // Process chunk asynchronously (doesn't block recording)
+        Task {
+            await processChunkAsync(
+                index: chunkIndex,
+                cafURL: chunkCAFURL,
+                startTime: chunkStartTime,
+                endTime: chunkEndTime
+            )
+        }
+    }
+
+    /// Process a single chunk: export to M4A, transcribe, send to backend
+    private func processChunkAsync(index: Int, cafURL: URL, startTime: TimeInterval, endTime: TimeInterval) async {
+        isProcessingChunk = true
+        defer { isProcessingChunk = false }
+
+        print("[Chunk] Processing chunk \(index)...")
+
+        // Step 1: Export CAF to M4A
+        guard let m4aURL = await exportCAFToM4A(cafURL: cafURL) else {
+            print("[Chunk] Failed to export chunk \(index) to M4A, queuing for retry")
+            chunkRetryQueue.append((index: index, cafURL: cafURL, startTime: startTime, endTime: endTime))
+            return
+        }
+
+        // Step 2: Transcribe with Deepgram
+        let transcript: String
+        do {
+            let (fullText, segments) = try await deepgramService.transcribeAndDiarize(fileURL: m4aURL)
+            transcript = formatDeepgramTranscript(segments: segments)
+            print("[Chunk] Transcribed chunk \(index): \(transcript.count) chars")
+        } catch {
+            print("[Chunk] Transcription failed for chunk \(index): \(error.localizedDescription)")
+            // Clean up M4A
+            try? FileManager.default.removeItem(at: m4aURL)
+            chunkRetryQueue.append((index: index, cafURL: cafURL, startTime: startTime, endTime: endTime))
+            return
+        }
+
+        // Step 3: Append to accumulated transcript (for UI display)
+        if !accumulatedTranscript.isEmpty {
+            accumulatedTranscript += "\n\n"
+        }
+        accumulatedTranscript += transcript
+        transcription = accumulatedTranscript
+
+        // Step 4: Send to backend
+        await sendChunkToBackend(
+            chunkIndex: index,
+            transcript: transcript,
+            isFinal: false,
+            startTime: startTime,
+            endTime: endTime
+        )
+
+        // Step 5: Clean up audio files
+        try? FileManager.default.removeItem(at: m4aURL)
+        try? FileManager.default.removeItem(at: cafURL)
+
+        print("[Chunk] Chunk \(index) processed successfully")
+    }
+
+    /// Process the remaining (final) audio segment when recording stops in multi-chunk mode
+    private func processRemainingSegmentAsChunk(sessionId: String, chunkIndex: Int, duration: TimeInterval) async {
+        isProcessing = true
+
+        // The last segment is the one that was being recorded when stop was called
+        guard let lastSegmentURL = recordingSegments.last else {
+            print("[Chunk] No final segment to process")
+            await sendFinalizationSignal(sessionId: sessionId)
+            isProcessing = false
+            return
+        }
+
+        // Export and transcribe the final segment
+        guard let m4aURL = await exportCAFToM4A(cafURL: lastSegmentURL) else {
+            print("[Chunk] Failed to export final segment")
+            await sendFinalizationSignal(sessionId: sessionId)
+            isProcessing = false
+            return
+        }
+
+        let transcript: String
+        do {
+            let (_, segments) = try await deepgramService.transcribeAndDiarize(fileURL: m4aURL)
+            transcript = formatDeepgramTranscript(segments: segments)
+        } catch {
+            print("[Chunk] Final segment transcription failed: \(error.localizedDescription)")
+            transcript = ""
+        }
+
+        // Append final transcript
+        if !transcript.isEmpty {
+            if !accumulatedTranscript.isEmpty {
+                accumulatedTranscript += "\n\n"
+            }
+            accumulatedTranscript += transcript
+            transcription = accumulatedTranscript
+        }
+
+        // Send final chunk to backend
+        if !transcript.isEmpty {
+            await sendChunkToBackend(
+                chunkIndex: chunkIndex,
+                transcript: transcript,
+                isFinal: false,
+                startTime: currentChunkStartTime,
+                endTime: duration
+            )
+        }
+
+        // Send finalization signal
+        let finalizationResult = await sendFinalizationSignal(sessionId: sessionId)
+
+        // Save to SwiftData with the accumulated transcript
+        let date = recordingDate ?? Date()
+        await saveToSwiftData(
+            date: date,
+            duration: duration,
+            transcriptionText: accumulatedTranscript,
+            summaryText: finalizationResult?.summary ?? ""
+        )
+
+        // Update recording title, summary, and insight from finalization result
+        if let context = modelContext {
+            let descriptor = FetchDescriptor<Recording>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+            if let latestRecording = try? context.fetch(descriptor).first {
+                // Set title
+                if let title = finalizationResult?.title {
+                    latestRecording.title = title
+                    print("[Chunk] Recording title: \(title)")
+                }
+
+                // Save insight if available
+                if let insightData = finalizationResult?.insight {
+                    let insight = Insight(
+                        date: date,
+                        setting: insightData.setting,
+                        settingEmoji: insightData.settingEmoji,
+                        mood: insightData.mood,
+                        thirdPersonTake: insightData.thirdPersonTake,
+                        correlations: insightData.correlations?.map { InsightCorrelation(memoryDate: $0.memoryDate, connection: $0.connection) } ?? [],
+                        actionableIdeas: insightData.actionableIdeas ?? []
+                    )
+                    latestRecording.insight = insight
+                    insight.recording = latestRecording
+                    print("[Chunk] Insight saved to recording")
+                }
+
+                try? context.save()
+            }
+        }
+
+        // Clean up all segment files
+        for segmentURL in recordingSegments {
+            try? FileManager.default.removeItem(at: segmentURL)
+        }
+        try? FileManager.default.removeItem(at: m4aURL)
+
+        isProcessing = false
+        print("[Chunk] Multi-chunk recording finalized (\(chunkIndex + 1) chunks)")
+    }
+
+    /// Export a CAF file to M4A format
+    private func exportCAFToM4A(cafURL: URL) async -> URL? {
+        let m4aURL = cafURL.deletingPathExtension().appendingPathExtension("m4a")
+
+        let asset = AVURLAsset(url: cafURL)
+        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+            print("[Chunk] Failed to create export session")
+            return nil
+        }
+
+        exportSession.outputURL = m4aURL
+        exportSession.outputFileType = .m4a
+
+        await exportSession.export()
+
+        if exportSession.status == .completed {
+            return m4aURL
+        } else {
+            print("[Chunk] Export failed: \(exportSession.error?.localizedDescription ?? "unknown")")
+            return nil
+        }
+    }
+
+    /// Send a chunk to the backend API
+    private func sendChunkToBackend(
+        chunkIndex: Int,
+        transcript: String,
+        isFinal: Bool,
+        startTime: TimeInterval,
+        endTime: TimeInterval
+    ) async {
+        let request = ProcessChunkRequest(
+            recordingSessionId: recordingSessionId,
+            chunkIndex: chunkIndex,
+            transcript: transcript,
+            isFinal: isFinal,
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            chunkStartTime: startTime,
+            chunkEndTime: endTime
+        )
+
+        // Retry up to 3 times with exponential backoff
+        for attempt in 1...3 {
+            do {
+                let result = try await APIService.shared.processChunk(request)
+                print("[Chunk] Backend processed chunk \(chunkIndex): status=\(result.status)")
+
+                // Check for live suggestion from backend
+                if let suggestion = result.liveSuggestion {
+                    handleLiveSuggestion(suggestion)
+                }
+                return
+            } catch {
+                print("[Chunk] Backend failed for chunk \(chunkIndex), attempt \(attempt): \(error.localizedDescription)")
+                if attempt < 3 {
+                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 5_000_000_000) // 5s, 10s
+                }
+            }
+        }
+        print("[Chunk] Backend permanently failed for chunk \(chunkIndex)")
+    }
+
+    /// Send finalization signal to consolidate the recording
+    private func sendFinalizationSignal(sessionId: String) async -> ChunkProcessResult? {
+        let request = ProcessChunkRequest(
+            recordingSessionId: sessionId,
+            chunkIndex: -1,
+            transcript: "",
+            isFinal: true,
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            chunkStartTime: nil,
+            chunkEndTime: nil
+        )
+
+        do {
+            let result = try await APIService.shared.processChunk(request)
+            print("[Chunk] Finalization complete: title=\(result.title ?? "nil")")
+            return result
+        } catch {
+            print("[Chunk] Finalization failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// Save recording data to SwiftData and send to backend
@@ -830,20 +1541,23 @@ class RecordingManager: NSObject, ObservableObject {
             return
         }
 
-        let attributes = RecordingActivityAttributes()
+        let attributes = RecordingActivityAttributes(startDate: Date())
         let initialState = RecordingActivityAttributes.ContentState(
             state: .recording,  // Start with minimal "recording" state
             pausedAtDuration: "",
             message: "Recording"
         )
 
+        // Stale date: auto-dismiss after 4 hours if app crashes and can't clean up
+        let staleDate = Date().addingTimeInterval(4 * 60 * 60)
+
         do {
             recordingActivity = try Activity.request(
                 attributes: attributes,
-                content: .init(state: initialState, staleDate: nil),
+                content: .init(state: initialState, staleDate: staleDate),
                 pushType: nil
             )
-            print("Live Activity: Started in recording state (minimal)")
+            print("Live Activity: Started in recording state (minimal, stale in 4h)")
         } catch {
             print("Live Activity: Failed to start - \(error.localizedDescription)")
         }
@@ -872,6 +1586,27 @@ class RecordingManager: NSObject, ObservableObject {
                 )
             )
             print("Live Activity: Updated to paused state")
+        }
+    }
+
+    /// Update Live Activity to show "Manual Pause" state
+    private func updateLiveActivityToManualPause() {
+        guard let activity = recordingActivity else {
+            print("Live Activity: No active activity to update to manual pause")
+            return
+        }
+
+        let updatedState = RecordingActivityAttributes.ContentState(
+            state: .manualPause,
+            pausedAtDuration: recordingDuration,
+            message: "Recording paused"
+        )
+
+        Task {
+            await activity.update(
+                ActivityContent(state: updatedState, staleDate: nil)
+            )
+            print("Live Activity: Updated to manual pause state")
         }
     }
 
@@ -947,15 +1682,28 @@ class RecordingManager: NSObject, ObservableObject {
 
     /// End the Live Activity
     private func endRecordingLiveActivity() {
-        guard let activity = recordingActivity else {
-            return
+        // End our tracked activity
+        if let activity = recordingActivity {
+            Task {
+                await activity.end(nil, dismissalPolicy: .immediate)
+                print("Live Activity: Ended tracked activity")
+            }
+            recordingActivity = nil
         }
 
+        // Safety net: end ALL recording Live Activities (catches zombies from crashes/force-quits)
         Task {
-            await activity.end(nil, dismissalPolicy: .immediate)
-            print("Live Activity: Ended")
+            await Self.endAllRecordingActivities()
         }
-        recordingActivity = nil
+    }
+
+    /// Kill ALL recording Live Activities system-wide — catches zombies from crashes, force-quits, etc.
+    /// Called on app launch and when stopping/discarding recordings as a safety net.
+    static func endAllRecordingActivities() async {
+        for activity in Activity<RecordingActivityAttributes>.activities {
+            await activity.end(nil, dismissalPolicy: .immediate)
+            print("Live Activity: Ended zombie activity \(activity.id)")
+        }
     }
 }
 
@@ -995,8 +1743,8 @@ extension RecordingManager: CXCallObserverDelegate {
     /// With AVAudioEngine: do NOT stop engine or deactivate session — system handles engine suspension
     /// Just close the file to finalize the segment; engine will be restarted on resume
     private func pauseRecordingForCall() {
-        guard isRecording, !isPausedForCall else {
-            print("CallKit: Cannot pause - isRecording: \(isRecording), isPausedForCall: \(isPausedForCall)")
+        guard isRecording, !isPausedForCall, !isPausedManually else {
+            print("CallKit: Cannot pause - isRecording: \(isRecording), isPausedForCall: \(isPausedForCall), isPausedManually: \(isPausedManually)")
             return
         }
 

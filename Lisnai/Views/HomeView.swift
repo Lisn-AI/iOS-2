@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import MarkdownUI
 
 /// Home view with recording controls and transcription display
 struct HomeView: View {
@@ -15,6 +16,8 @@ struct HomeView: View {
     @State private var pendingSuggestionsCount = 0
     @State private var appeared = false
     @State private var dismissedResults = false
+    @State private var showDiscardAlert = false
+    @Query(sort: \Recording.createdAt, order: .reverse) private var recentRecordings: [Recording]
 
     /// Whether we have results to show
     private var hasResults: Bool {
@@ -50,7 +53,7 @@ struct HomeView: View {
         .overlay {
             // Apple Intelligence-style edge glow when recording
             EdgeGlowEffect(
-                isActive: isRecording && !recordingManager.isPausedForCall,
+                isActive: isRecording && !recordingManager.isPaused,
                 audioLevel: recordingManager.audioLevel
             )
             .transition(.opacity)
@@ -65,6 +68,21 @@ struct HomeView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Please enable microphone access in Settings to record audio.")
+        }
+        .alert("Discard Recording?", isPresented: $showDiscardAlert) {
+            Button("Discard", role: .destructive) {
+                LisnHaptics.error()
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                    recordingManager.discardRecording()
+                    isRecording = false
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This recording will be permanently deleted.")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ShowDiscardConfirmation"))) { _ in
+            showDiscardAlert = true
         }
         .sheet(isPresented: $showMemorySearch) {
             MemorySearchView()
@@ -90,11 +108,12 @@ struct HomeView: View {
         VStack(spacing: 0) {
             Spacer()
 
-            // Hero: Recording Orb
+            // Hero: Recording Orb (standalone)
             RecordingOrb(
                 isRecording: isRecording,
                 audioLevel: recordingManager.audioLevel,
-                isPaused: recordingManager.isPausedForCall,
+                isPaused: recordingManager.isPaused,
+                isCallPaused: recordingManager.isPausedForCall,
                 action: toggleRecording
             )
             .opacity(appeared ? 1 : 0)
@@ -106,6 +125,13 @@ struct HomeView: View {
                 .opacity(appeared ? 1 : 0)
                 .offset(y: appeared ? 0 : 10)
 
+            // Floating glass control bar (below status label during recording)
+            if isRecording {
+                floatingControlBar
+                    .padding(.top, LisnSpacing.lg)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             Spacer()
 
             // Processing Status
@@ -116,6 +142,7 @@ struct HomeView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isRecording)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: recordingManager.isProcessing)
     }
 
@@ -133,7 +160,8 @@ struct HomeView: View {
             RecordingOrb(
                 isRecording: isRecording,
                 audioLevel: recordingManager.audioLevel,
-                isPaused: recordingManager.isPausedForCall,
+                isPaused: recordingManager.isPaused,
+                isCallPaused: recordingManager.isPausedForCall,
                 action: toggleRecording
             )
             .scaleEffect(0.55)
@@ -155,6 +183,11 @@ struct HomeView: View {
 
                     if !recordingManager.summary.isEmpty {
                         summaryCard
+                    }
+
+                    // Show insight card if the latest recording has one
+                    if let latestInsight = recentRecordings.first?.insight {
+                        InsightCard(insight: latestInsight)
                     }
                 }
                 .padding(.horizontal, LisnSpacing.lg)
@@ -283,7 +316,13 @@ struct HomeView: View {
                     .foregroundColor(LisnColors.accent)
                     .contentTransition(.numericText())
 
-                if recordingManager.isPausedForCall {
+                if recordingManager.isPausedManually {
+                    Text("Tap to resume")
+                        .font(LisnFont.caption())
+                        .foregroundColor(LisnColors.accent)
+                        .padding(.top, LisnSpacing.xxs)
+                        .transition(.opacity)
+                } else if recordingManager.isPausedForCall {
                     HStack(spacing: LisnSpacing.xxs) {
                         Image(systemName: "phone.fill")
                             .font(.system(size: 11))
@@ -301,6 +340,33 @@ struct HomeView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: isRecording)
+        .animation(.easeInOut(duration: 0.3), value: recordingManager.isPausedManually)
+    }
+
+    // MARK: - Floating Control Bar
+
+    private var floatingControlBar: some View {
+        HStack(spacing: LisnSpacing.md) {
+            GlassButton(
+                icon: "xmark",
+                label: "Discard",
+                isDestructive: true
+            ) {
+                showDiscardAlert = true
+            }
+
+            GlassButton(
+                icon: recordingManager.isPausedManually ? "play.fill" : "pause.fill",
+                label: recordingManager.isPausedManually ? "Resume" : "Pause"
+            ) {
+                if recordingManager.isPausedManually {
+                    recordingManager.resumeRecording()
+                } else {
+                    recordingManager.pauseRecording()
+                }
+            }
+        }
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isRecording)
     }
 
     // MARK: - Processing View
@@ -359,10 +425,8 @@ struct HomeView: View {
                     .font(.system(size: 14))
             }
 
-            Text(recordingManager.summary)
-                .font(LisnFont.bodyMedium())
-                .foregroundColor(LisnColors.textPrimary)
-                .lineSpacing(4)
+            Markdown(recordingManager.summary)
+                .markdownTheme(.lisnAI)
         }
         .padding(LisnSpacing.md)
         .background(LisnColors.bgElevated)
@@ -391,7 +455,9 @@ struct HomeView: View {
     }
 
     private var statusText: String {
-        if recordingManager.isPausedForCall {
+        if recordingManager.isPausedManually {
+            return "Paused"
+        } else if recordingManager.isPausedForCall {
             return "Paused for Call"
         } else if isRecording {
             return "Recording"

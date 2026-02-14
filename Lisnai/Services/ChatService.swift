@@ -27,6 +27,11 @@ class ChatService: ObservableObject {
 
     /// Send a message and stream the response from the AI
     func sendMessage(_ content: String) async {
+        await sendMessageWithContext(content, context: nil)
+    }
+
+    /// Send a message with optional recording context and stream the response
+    func sendMessageWithContext(_ content: String, context: String?) async {
         // Add user message
         let userMessage = ChatMessage(content: content, isUser: true)
         messages.append(userMessage)
@@ -57,7 +62,8 @@ class ChatService: ObservableObject {
 
             let stream = try await api.chatStream(
                 message: content,
-                history: Array(history)
+                history: Array(history),
+                context: context
             )
 
             for await event in stream {

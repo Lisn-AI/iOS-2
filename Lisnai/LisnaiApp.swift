@@ -178,6 +178,8 @@ extension Notification.Name {
     static let openActions = Notification.Name("openActions")
     static let openSuggestions = Notification.Name("openSuggestions")
     static let navigateToHome = Notification.Name("navigateToHome")
+    static let openChat = Notification.Name("openChat")
+    static let chatWithContext = Notification.Name("chatWithContext")
 }
 
 @main
@@ -199,7 +201,8 @@ struct LisnaiApp: App {
             Recording.self,
             Transcription.self,
             Summary.self,
-            ChatMessage.self
+            ChatMessage.self,
+            Insight.self
         ])
         let modelConfiguration = ModelConfiguration(
             schema: schema,

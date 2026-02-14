@@ -1,12 +1,12 @@
 import Foundation
-import UserNotifications
 import ActivityKit
 import UIKit
 
-/// Monitors for new suggestions and handles notifications + Live Activities
+/// Monitors for new suggestions and syncs data for the UI
 /// - Checks for suggestions every 5 minutes when app is in foreground
-/// - Sends local notifications for new suggestions
-/// - Shows Live Activity 2 minutes after notification if app is still active
+/// - Updates pendingSuggestions array for badge counts and Actions tab
+/// - Shows Live Activity for high-confidence suggestions when app is active
+/// - Backend APNs pushes are the sole push notification mechanism
 @MainActor
 class SuggestionMonitor: ObservableObject {
     static let shared = SuggestionMonitor()
@@ -15,9 +15,6 @@ class SuggestionMonitor: ObservableObject {
 
     /// Interval between suggestion checks (5 minutes)
     private let checkInterval: TimeInterval = 5 * 60
-
-    /// Delay before showing Live Activity after notification (2 minutes)
-    private let liveActivityDelay: TimeInterval = 2 * 60
 
     // MARK: - State
 
@@ -32,14 +29,7 @@ class SuggestionMonitor: ObservableObject {
     /// Timer for periodic checks
     private var checkTimer: Timer?
 
-    /// Timer for Live Activity display
-    private var liveActivityTimer: Timer?
-
-    /// Suggestion waiting for Live Activity display
-    private var pendingLiveActivitySuggestion: ProactiveSuggestion?
-
     private let api = APIService.shared
-    private let notificationService = NotificationService.shared
 
     // MARK: - Lifecycle
 
@@ -120,8 +110,6 @@ class SuggestionMonitor: ObservableObject {
         isMonitoring = false
         checkTimer?.invalidate()
         checkTimer = nil
-        liveActivityTimer?.invalidate()
-        liveActivityTimer = nil
         print("[SuggestionMonitor] Monitoring stopped")
     }
 
@@ -138,16 +126,28 @@ class SuggestionMonitor: ObservableObject {
 
             print("[SuggestionMonitor] Found \(suggestions.count) pending suggestions")
 
-            // Filter to only new suggestions
+            // Update published suggestions for UI (badge counts, Actions tab)
+            pendingSuggestions = suggestions
+
+            // Track new suggestions for badge updates
             let newSuggestions = suggestions.filter { !notifiedSuggestionIds.contains($0.id) }
 
             if !newSuggestions.isEmpty {
-                print("[SuggestionMonitor] \(newSuggestions.count) new suggestions to notify")
-                pendingSuggestions = suggestions
+                print("[SuggestionMonitor] \(newSuggestions.count) new suggestions found")
 
-                // Notify for each new suggestion
                 for suggestion in newSuggestions {
-                    await notifySuggestion(suggestion)
+                    trackSuggestion(suggestion)
+                }
+
+                // Show Live Activity for the most urgent new suggestion while app is active
+                if UIApplication.shared.applicationState == .active {
+                    let bestSuggestion = newSuggestions
+                        .sorted { $0.confidence > $1.confidence }
+                        .first!
+                    // Show for high-confidence (>= 0.7) suggestions
+                    if bestSuggestion.confidence >= 0.7 {
+                        await showLiveActivity(for: bestSuggestion)
+                    }
                 }
             } else {
                 print("[SuggestionMonitor] No new suggestions")
@@ -158,86 +158,19 @@ class SuggestionMonitor: ObservableObject {
         }
     }
 
-    // MARK: - Notifications
+    // MARK: - Tracking
 
-    /// Send a local notification for a suggestion
-    private func notifySuggestion(_ suggestion: ProactiveSuggestion) async {
-        // Mark as notified
+    /// Track a new suggestion (data sync only — no local notifications)
+    /// Backend APNs pushes handle all user-facing notifications.
+    private func trackSuggestion(_ suggestion: ProactiveSuggestion) {
         notifiedSuggestionIds.insert(suggestion.id)
         saveNotifiedIds()
-
-        // Determine category based on type
-        let category = categoryForSuggestionType(suggestion.type)
-
-        // Build notification content
-        let userInfo: [String: Any] = [
-            "suggestionId": suggestion.id,
-            "type": suggestion.type,
-            "confidence": suggestion.confidence
-        ]
-
-        do {
-            try await notificationService.scheduleLocalNotification(
-                title: suggestion.title,
-                body: suggestion.body,
-                category: category,
-                userInfo: userInfo
-            )
-
-            print("[SuggestionMonitor] Notification sent for suggestion: \(suggestion.id)")
-
-            // Schedule Live Activity after delay
-            scheduleLiveActivity(for: suggestion)
-
-        } catch {
-            print("[SuggestionMonitor] Failed to send notification: \(error)")
-        }
-    }
-
-    /// Get notification category for suggestion type
-    private func categoryForSuggestionType(_ type: String) -> NotificationService.Category {
-        switch type {
-        case "call_reminder":
-            return .suggestionCall
-        case "follow_up":
-            return .suggestionFollowup
-        case "task_reminder":
-            return .suggestionTask
-        case "pattern_insight":
-            return .suggestionInsight
-        case "connection_prompt":
-            return .suggestionConnection
-        case "event_reminder":
-            return .suggestionEvent
-        default:
-            return .suggestion
-        }
+        print("[SuggestionMonitor] Tracked suggestion: \(suggestion.id)")
     }
 
     // MARK: - Live Activity
 
-    /// Schedule Live Activity to appear after delay
-    private func scheduleLiveActivity(for suggestion: ProactiveSuggestion) {
-        print("[SuggestionMonitor] Scheduling Live Activity in \(liveActivityDelay)s for: \(suggestion.title)")
-
-        pendingLiveActivitySuggestion = suggestion
-
-        liveActivityTimer?.invalidate()
-        liveActivityTimer = Timer.scheduledTimer(withTimeInterval: liveActivityDelay, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self = self else { return }
-
-                // Only show if app is still in foreground
-                if UIApplication.shared.applicationState == .active {
-                    await self.showLiveActivity(for: suggestion)
-                } else {
-                    print("[SuggestionMonitor] App not active, skipping Live Activity")
-                }
-            }
-        }
-    }
-
-    /// Show Live Activity for a suggestion
+    /// Show Live Activity for a suggestion on the Dynamic Island / Lock Screen
     func showLiveActivity(for suggestion: ProactiveSuggestion) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             print("[SuggestionMonitor] Live Activities not enabled")
@@ -274,9 +207,9 @@ class SuggestionMonitor: ObservableObject {
             currentLiveActivity = activity
             print("[SuggestionMonitor] Live Activity started: \(activity.id)")
 
-            // Auto-dismiss after 30 seconds
+            // Auto-dismiss after 60 seconds
             Task {
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
                 await endCurrentLiveActivity()
             }
 
@@ -299,7 +232,6 @@ class SuggestionMonitor: ObservableObject {
 
         await activity.end(nil, dismissalPolicy: .immediate)
         currentLiveActivity = nil
-        pendingLiveActivitySuggestion = nil
         print("[SuggestionMonitor] Live Activity ended")
     }
 

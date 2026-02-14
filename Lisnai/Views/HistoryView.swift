@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import MarkdownUI
 
 /// View showing recording history organized by date
 struct HistoryView: View {
@@ -168,12 +169,16 @@ struct RecordingRow: View {
 struct RecordingDetailView: View {
     let recording: Recording
     @State private var selectedTab = 0
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
             // Tab picker
             Picker("View", selection: $selectedTab) {
                 Text("Summary").tag(0)
+                if recording.insight != nil {
+                    Text("Insight").tag(2)
+                }
                 Text("Transcription").tag(1)
             }
             .pickerStyle(.segmented)
@@ -198,11 +203,45 @@ struct RecordingDetailView: View {
                     // Content based on tab
                     if selectedTab == 0 {
                         summaryContent
+                    } else if selectedTab == 2 {
+                        insightContent
                     } else {
                         transcriptionContent
                     }
                 }
                 .padding()
+                .padding(.bottom, 80) // Space for floating button
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if recording.summary != nil {
+                Button {
+                    let title = recording.title ?? "Recording"
+                    let summary = recording.summary?.text ?? ""
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        NotificationCenter.default.post(
+                            name: .openChat,
+                            object: nil,
+                            userInfo: ["title": title, "summary": summary]
+                        )
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Ask")
+                            .font(LisnFont.bodyMedium())
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(LisnColors.accent)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(LisnColors.bgElevated)
+                    .clipShape(Capsule())
+                    .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+                }
+                .padding(.bottom, 88)
             }
         }
         .navigationTitle(recording.title ?? "Recording")
@@ -213,10 +252,22 @@ struct RecordingDetailView: View {
     @ViewBuilder
     private var summaryContent: some View {
         if let summary = recording.summary {
-            Text(summary.text)
-                .font(LisnFont.bodyLarge())
+            Markdown(summary.text)
+                .markdownTheme(.lisnAI)
         } else {
             Text("No summary available")
+                .font(LisnFont.bodyLarge())
+                .foregroundColor(LisnColors.textSecondary)
+                .italic()
+        }
+    }
+
+    @ViewBuilder
+    private var insightContent: some View {
+        if let insight = recording.insight {
+            InsightDetailView(insight: insight)
+        } else {
+            Text("No insight available")
                 .font(LisnFont.bodyLarge())
                 .foregroundColor(LisnColors.textSecondary)
                 .italic()

@@ -5,6 +5,7 @@ struct RecordingOrb: View {
     let isRecording: Bool
     let audioLevel: CGFloat
     let isPaused: Bool
+    let isCallPaused: Bool
     let action: () -> Void
 
     @State private var isPressed = false
@@ -16,7 +17,7 @@ struct RecordingOrb: View {
 
     private var iconName: String {
         if isPaused {
-            return "phone.fill"
+            return isCallPaused ? "phone.fill" : "pause.fill"
         } else if isRecording {
             return "stop.fill"
         } else {

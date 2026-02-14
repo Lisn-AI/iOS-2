@@ -151,11 +151,24 @@ class APIService: ObservableObject {
         return try await execute(request)
     }
 
+    // MARK: - Chunk Processing (multi-chunk recordings)
+
+    /// Process a single chunk of a multi-chunk recording
+    /// Handles single-chunk (backward compatible), multi-chunk, and finalization
+    func processChunk(_ request: ProcessChunkRequest) async throws -> ChunkProcessResult {
+        let apiRequest = try await createRequest(
+            endpoint: "/api/transcripts/chunk",
+            method: "POST",
+            body: try encoder.encode(request)
+        )
+        return try await execute(apiRequest)
+    }
+
     // MARK: - Chat
 
     /// Send a message to the RAG-enhanced chat
-    func chat(message: String, history: [ChatHistoryItem] = []) async throws -> ChatResponse {
-        let body = ChatRequest(message: message, history: history)
+    func chat(message: String, history: [ChatHistoryItem] = [], context: String? = nil) async throws -> ChatResponse {
+        let body = ChatRequest(message: message, history: history, context: context)
 
         let request = try await createRequest(
             endpoint: "/api/chat",
@@ -177,9 +190,10 @@ class APIService: ObservableObject {
     /// Stream a chat response via SSE, returns an AsyncStream of events
     func chatStream(
         message: String,
-        history: [ChatHistoryItem] = []
+        history: [ChatHistoryItem] = [],
+        context: String? = nil
     ) async throws -> AsyncStream<ChatStreamEvent> {
-        let body = ChatRequest(message: message, history: history)
+        let body = ChatRequest(message: message, history: history, context: context)
         var request = try await createRequest(
             endpoint: "/api/chat/stream",
             method: "POST",
@@ -504,6 +518,24 @@ class APIService: ObservableObject {
         )
         return try await execute(request)
     }
+
+    // MARK: - Recording Insights
+
+    /// Get paginated list of recording insights
+    func getInsights(limit: Int = 20, offset: Int = 0) async throws -> RecordingInsightListResponse {
+        let request = try await createRequest(
+            endpoint: "/api/transcripts/insights?limit=\(limit)&offset=\(offset)"
+        )
+        return try await execute(request)
+    }
+
+    /// Get a single insight by ID
+    func getInsight(id: String) async throws -> RecordingInsightDetailResponse {
+        let request = try await createRequest(
+            endpoint: "/api/transcripts/insights/\(id)"
+        )
+        return try await execute(request)
+    }
 }
 
 // MARK: - Request Types
@@ -514,9 +546,102 @@ struct ProcessTranscriptRequest: Codable {
     let sessionId: String?
 }
 
+struct LiveSuggestion: Codable {
+    let type: String           // "action" or "context"
+    let title: String
+    let body: String
+    let actionSkill: String?
+    let actionParams: [String: AnyCodable]?
+    let dismissable: Bool
+    let expiresIn: Int         // seconds (default 120)
+}
+
+// MARK: - Recording Insight
+
+struct RecordingInsightResponse: Codable {
+    let setting: String
+    let mood: String?
+    let thirdPersonTake: String
+    let correlations: [InsightCorrelation]?
+    let actionableIdeas: [String]?
+    let settingEmoji: String?
+
+    struct InsightCorrelation: Codable {
+        let memoryDate: String
+        let connection: String
+    }
+}
+
+struct RecordingInsightListResponse: Codable {
+    let insights: [RecordingInsightDetail]
+}
+
+struct RecordingInsightDetail: Codable, Identifiable {
+    let id: String
+    let userId: String?
+    let recordingSessionId: String?
+    let setting: String
+    let settingEmoji: String?
+    let mood: String?
+    let thirdPersonTake: String
+    let correlations: [RecordingInsightResponse.InsightCorrelation]?
+    let actionableIdeas: [String]?
+    let createdAt: String?
+}
+
+struct RecordingInsightDetailResponse: Codable {
+    let insight: RecordingInsightDetail
+}
+
+struct ProcessChunkRequest: Codable {
+    let recordingSessionId: String
+    let chunkIndex: Int
+    let transcript: String
+    let isFinal: Bool
+    let timestamp: String?
+    let chunkStartTime: Double?
+    let chunkEndTime: Double?
+}
+
+struct ChunkProcessResult: Codable {
+    let recordingSessionId: String
+    let chunkIndex: Int
+    let memoryId: String?
+    let sessionId: String?
+    let title: String?
+    let summary: String?
+    let rollingSummary: String?
+    let status: String // "processed", "finalized", "single"
+    let liveSuggestion: LiveSuggestion?
+    let insight: RecordingInsightResponse?
+    // For single-chunk backward compatibility
+    let chatResponse: String?
+
+    enum CodingKeys: String, CodingKey {
+        case recordingSessionId, chunkIndex, memoryId, sessionId
+        case title, summary, rollingSummary, status, liveSuggestion, insight, chatResponse
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        recordingSessionId = try container.decode(String.self, forKey: .recordingSessionId)
+        chunkIndex = try container.decode(Int.self, forKey: .chunkIndex)
+        memoryId = try container.decodeIfPresent(String.self, forKey: .memoryId)
+        sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        rollingSummary = try container.decodeIfPresent(String.self, forKey: .rollingSummary)
+        status = try container.decode(String.self, forKey: .status)
+        liveSuggestion = try container.decodeIfPresent(LiveSuggestion.self, forKey: .liveSuggestion)
+        insight = try container.decodeIfPresent(RecordingInsightResponse.self, forKey: .insight)
+        chatResponse = try container.decodeIfPresent(String.self, forKey: .chatResponse)
+    }
+}
+
 struct ChatRequest: Codable {
     let message: String
     let history: [ChatHistoryItem]
+    let context: String?
 }
 
 struct ChatHistoryItem: Codable {

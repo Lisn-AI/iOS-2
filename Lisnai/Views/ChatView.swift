@@ -7,7 +7,7 @@ struct ChatView: View {
     @StateObject private var chatService: ChatService
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
-    @Namespace private var bottomID
+    @State private var shouldAutoScroll = true
 
     init(modelContext: ModelContext) {
         _chatService = StateObject(wrappedValue: ChatService(modelContext: modelContext))
@@ -51,6 +51,14 @@ struct ChatView: View {
         .onAppear {
             chatService.loadHistory()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .chatWithContext)) { notification in
+            guard let title = notification.userInfo?["title"] as? String,
+                  let summary = notification.userInfo?["summary"] as? String else { return }
+            let message = "I want to ask about '\(title)'. What are the key takeaways from this conversation?"
+            Task {
+                await chatService.sendMessageWithContext(message, context: summary)
+            }
+        }
         .onTapGesture {
             isInputFocused = false
         }
@@ -77,10 +85,6 @@ struct ChatView: View {
                                     isStreaming: !message.isUser && message.id == chatService.messages.last?.id && chatService.isStreaming
                                 )
                                 .id(message.id)
-                                .transition(.asymmetric(
-                                    insertion: .scale(scale: 0.9).combined(with: .opacity),
-                                    removal: .opacity
-                                ))
                             }
                         }
 
@@ -103,24 +107,31 @@ struct ChatView: View {
                 .padding(.vertical, LisnSpacing.xs)
             }
             .scrollDismissesKeyboard(.interactively)
-            .defaultScrollAnchor(.bottom)
-            .onChange(of: chatService.messages.count) { oldCount, newCount in
-                if newCount > oldCount {
-                    scrollToBottom(proxy: proxy, animated: true)
+            .onChange(of: chatService.messages.count) { _, _ in
+                if shouldAutoScroll {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("bottom")
+                    }
                 }
             }
-            .onChange(of: chatService.streamingText) { _, _ in
-                // Auto-scroll as streaming text arrives
-                scrollToBottom(proxy: proxy, animated: false)
-            }
             .onChange(of: chatService.isLoading) { _, isLoading in
-                if isLoading {
-                    scrollToBottom(proxy: proxy, animated: true)
+                if isLoading && shouldAutoScroll {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("bottom")
+                    }
+                }
+            }
+            .onChange(of: chatService.isStreaming) { _, isStreaming in
+                // Scroll to bottom when streaming starts, not on every token
+                if isStreaming && shouldAutoScroll {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("bottom")
+                    }
                 }
             }
             .onAppear {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    scrollToBottom(proxy: proxy, animated: false)
+                    proxy.scrollTo("bottom")
                 }
             }
         }
@@ -286,18 +297,6 @@ struct ChatView: View {
             await chatService.sendMessage(text)
         }
     }
-
-    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
-        let id = chatService.isLoading && !chatService.isStreaming ? "typing" : "bottom"
-
-        if animated {
-            withAnimation(.easeOut(duration: 0.25)) {
-                proxy.scrollTo(id, anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo(id, anchor: .bottom)
-        }
-    }
 }
 
 // MARK: - Date Header
@@ -379,8 +378,14 @@ struct MessageBubble: View {
                         // User messages: plain text
                         Text(message.content)
                             .font(LisnFont.bodyLarge())
+                    } else if isStreaming {
+                        // AI streaming: plain text only (no Markdown parsing during stream)
+                        // This is the key fix: Markdown() re-parses on every token causing glitches
+                        Text(message.content)
+                            .font(.system(size: 16))
+                            .foregroundColor(LisnColors.textPrimary)
                     } else {
-                        // AI messages: render markdown
+                        // AI completed: render full markdown
                         Markdown(message.content)
                             .markdownTheme(.lisnAI)
                             .markdownCodeSyntaxHighlighter(.plain)
@@ -445,7 +450,7 @@ extension MarkdownUI.Theme {
     static let lisnAI = Theme()
         .text {
             ForegroundColor(LisnColors.textPrimary)
-            FontSize(15)
+            FontSize(16)
         }
         .strong {
             FontWeight(.semibold)
@@ -485,7 +490,7 @@ extension MarkdownUI.Theme {
         .listItem { configuration in
             configuration.label
                 .markdownTextStyle {
-                    FontSize(15)
+                    FontSize(16)
                     ForegroundColor(LisnColors.textPrimary)
                 }
         }
