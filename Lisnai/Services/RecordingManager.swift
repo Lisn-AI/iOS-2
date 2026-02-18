@@ -1161,42 +1161,42 @@ class RecordingManager: NSObject, ObservableObject {
         // Send finalization signal
         let finalizationResult = await sendFinalizationSignal(sessionId: sessionId)
 
-        // Save to SwiftData with the accumulated transcript
+        // Save to SwiftData directly (don't use saveToSwiftData which double-sends to backend)
         let date = recordingDate ?? Date()
-        await saveToSwiftData(
-            date: date,
-            duration: duration,
-            transcriptionText: accumulatedTranscript,
-            summaryText: finalizationResult?.summary ?? ""
-        )
-
-        // Update recording title, summary, and insight from finalization result
         if let context = modelContext {
-            let descriptor = FetchDescriptor<Recording>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
-            if let latestRecording = try? context.fetch(descriptor).first {
-                // Set title
-                if let title = finalizationResult?.title {
-                    latestRecording.title = title
-                    print("[Chunk] Recording title: \(title)")
-                }
+            let recording = Recording(date: date, duration: duration, title: finalizationResult?.title)
 
-                // Save insight if available
-                if let insightData = finalizationResult?.insight {
-                    let insight = Insight(
-                        date: date,
-                        setting: insightData.setting,
-                        settingEmoji: insightData.settingEmoji,
-                        mood: insightData.mood,
-                        thirdPersonTake: insightData.thirdPersonTake,
-                        correlations: insightData.correlations?.map { InsightCorrelation(memoryDate: $0.memoryDate, connection: $0.connection) } ?? [],
-                        actionableIdeas: insightData.actionableIdeas ?? []
-                    )
-                    latestRecording.insight = insight
-                    insight.recording = latestRecording
-                    print("[Chunk] Insight saved to recording")
-                }
+            let transcriptionModel = Transcription(date: date, text: accumulatedTranscript, recording: recording)
+            recording.transcription = transcriptionModel
 
-                try? context.save()
+            let summaryText = finalizationResult?.summary ?? ""
+            if !summaryText.isEmpty {
+                let summaryModel = Summary(date: date, text: summaryText, recording: recording)
+                recording.summary = summaryModel
+            }
+
+            // Attach insight if available
+            if let insightData = finalizationResult?.insight {
+                let insight = Insight(
+                    date: date,
+                    setting: insightData.setting,
+                    settingEmoji: insightData.settingEmoji,
+                    mood: insightData.mood,
+                    thirdPersonTake: insightData.thirdPersonTake,
+                    correlations: insightData.correlations?.map { InsightCorrelation(memoryDate: $0.memoryDate, connection: $0.connection) } ?? [],
+                    actionableIdeas: insightData.actionableIdeas ?? []
+                )
+                recording.insight = insight
+                insight.recording = recording
+                print("[Chunk] Insight saved to recording")
+            }
+
+            context.insert(recording)
+            do {
+                try context.save()
+                print("[Chunk] Recording saved to SwiftData")
+            } catch {
+                print("[Chunk] SwiftData save failed: \(error.localizedDescription)")
             }
         }
 
