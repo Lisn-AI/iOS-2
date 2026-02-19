@@ -16,6 +16,11 @@ struct MainTabView: View {
     @StateObject private var actionsViewModel = ActionsViewModel()
     @StateObject private var keyboardObserver = KeyboardObserver()
 
+    // Live suggestion action state
+    @State private var liveSuggestionAction: PendingAction?
+    @State private var showSuggestionSuccess = false
+    @State private var suggestionSuccessMessage = ""
+
     enum Tab: String, CaseIterable {
         case home = "Home"
         case history = "History"
@@ -139,6 +144,69 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
             handleOpenChat(notification)
+        }
+        // Listen for "Do it" taps on live suggestion Live Activity
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ExecuteSuggestionAction"))) { notification in
+            guard let userInfo = notification.userInfo,
+                  let skill = userInfo["skill"] as? String else { return }
+
+            let title = userInfo["title"] as? String ?? ""
+            let body = userInfo["body"] as? String ?? ""
+
+            // Build params from actionParams if available, otherwise from title/body
+            var params: [String: AnyCodable] = [:]
+            if let actionParams = userInfo["actionParams"] as? [String: Any] {
+                for (key, value) in actionParams {
+                    params[key] = AnyCodable(value)
+                }
+            }
+            // Ensure title/content is populated for form display
+            if params["title"] == nil && !title.isEmpty {
+                params["title"] = AnyCodable(title)
+            }
+            if params["content"] == nil && !body.isEmpty {
+                params["content"] = AnyCodable(body)
+            }
+
+            let tool = ActionExecutor.normalizeTool(
+                params["tool"]?.stringValue ?? skill,
+                skill: ActionExecutor.normalizeSkill(skill)
+            )
+
+            let action = PendingAction(
+                id: UUID().uuidString,
+                skill: ActionExecutor.normalizeSkill(skill),
+                tool: tool,
+                type: tool,
+                params: params,
+                status: "pending",
+                createdAt: ISO8601DateFormatter().string(from: Date())
+            )
+
+            liveSuggestionAction = action
+        }
+        .sheet(item: $liveSuggestionAction) { action in
+            ActionEditSheet(
+                action: action,
+                onConfirm: { editedAction in
+                    liveSuggestionAction = nil
+                    Task {
+                        let result = await ActionExecutor.shared.executeAction(editedAction)
+                        if result.success && result.requiresUserInput == .none {
+                            suggestionSuccessMessage = result.message
+                            showSuggestionSuccess = true
+                        }
+                    }
+                },
+                onCancel: {
+                    liveSuggestionAction = nil
+                }
+            )
+        }
+        .alert("Success", isPresented: $showSuggestionSuccess) {
+            Button("OK") { }
+        } message: {
+            Text(suggestionSuccessMessage)
         }
     }
 

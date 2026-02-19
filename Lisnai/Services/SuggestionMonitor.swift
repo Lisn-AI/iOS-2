@@ -23,6 +23,10 @@ class SuggestionMonitor: ObservableObject {
     @Published var pendingSuggestions: [ProactiveSuggestion] = []
     @Published var currentLiveActivity: Activity<TaskActivityAttributes>?
 
+    /// Set to true while a recording is active — suppresses Live Activity for proactive suggestions
+    /// so only live chunk suggestions show on the RecordingActivity Dynamic Island
+    var isRecordingActive = false
+
     /// IDs of suggestions that have already been notified
     private var notifiedSuggestionIds: Set<String> = []
 
@@ -140,7 +144,8 @@ class SuggestionMonitor: ObservableObject {
                 }
 
                 // Show Live Activity for the most urgent new suggestion while app is active
-                if UIApplication.shared.applicationState == .active {
+                // Skip during recording — the RecordingActivity handles live chunk suggestions instead
+                if UIApplication.shared.applicationState == .active && !isRecordingActive {
                     let bestSuggestion = newSuggestions
                         .sorted { $0.confidence > $1.confidence }
                         .first!

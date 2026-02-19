@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import MessageUI
 
 /// View for displaying proactive suggestions from the AI
 struct SuggestionsView: View {
@@ -9,6 +10,12 @@ struct SuggestionsView: View {
     @State private var showDetailSheet = false
     @State private var showSuccessAlert = false
     @State private var successMessage = ""
+    @State private var actionToEdit: PendingAction?
+    @State private var showEmailInputSheet = false
+    @State private var emailInputText = ""
+    @State private var pendingEmailAction: PendingAction?
+    @State private var emailDraftDetails: EmailDraftDetails?
+    @State private var showMailComposer = false
 
     var body: some View {
         NavigationStack {
@@ -43,13 +50,16 @@ struct SuggestionsView: View {
                         suggestion: suggestion,
                         onAccept: {
                             Task {
-                                let result = await viewModel.acceptSuggestion(suggestion)
-                                showDetailSheet = false
-                                selectedSuggestion = nil
-
-                                // Show success feedback if action was executed
-                                if let result = result, result.success && result.requiresUserInput == .none {
-                                    successMessage = result.message
+                                if let action = await viewModel.acceptSuggestionForEdit(suggestion) {
+                                    showDetailSheet = false
+                                    selectedSuggestion = nil
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                        actionToEdit = action
+                                    }
+                                } else {
+                                    showDetailSheet = false
+                                    selectedSuggestion = nil
+                                    successMessage = "Suggestion accepted"
                                     showSuccessAlert = true
                                 }
                             }
@@ -62,6 +72,90 @@ struct SuggestionsView: View {
                             }
                         }
                     )
+                }
+            }
+            .sheet(item: $actionToEdit) { action in
+                ActionEditSheet(
+                    action: action,
+                    onConfirm: { editedAction in
+                        actionToEdit = nil
+                        Task {
+                            let result = await ActionExecutor.shared.executeAction(editedAction)
+
+                            switch result.requiresUserInput {
+                            case .emailAddress:
+                                pendingEmailAction = editedAction
+                                emailInputText = ""
+                                showEmailInputSheet = true
+
+                            case .mailComposer:
+                                if let details = ActionExecutor.shared.getEmailDraftDetails(from: ActionExecutor.shared.pendingEmailAction ?? editedAction) {
+                                    emailDraftDetails = details
+                                    showMailComposer = true
+                                }
+
+                            case .phoneNumber:
+                                break
+
+                            case .none:
+                                if result.success {
+                                    successMessage = result.message
+                                    showSuccessAlert = true
+                                }
+                            }
+                        }
+                    },
+                    onCancel: {
+                        actionToEdit = nil
+                    }
+                )
+            }
+            .sheet(isPresented: $showEmailInputSheet) {
+                EmailInputSheet(
+                    recipientName: pendingEmailAction?.params?["recipientName"]?.stringValue ?? "recipient",
+                    emailText: $emailInputText,
+                    onSubmit: { email in
+                        showEmailInputSheet = false
+                        Task {
+                            let executor = ActionExecutor.shared
+                            let result = await executor.addEmailAndExecute(email)
+                            if result.success && result.requiresUserInput == .mailComposer {
+                                if let details = executor.getEmailDraftDetails(from: executor.pendingEmailAction!) {
+                                    emailDraftDetails = details
+                                    showMailComposer = true
+                                }
+                            }
+                            pendingEmailAction = nil
+                        }
+                    },
+                    onCancel: {
+                        showEmailInputSheet = false
+                        pendingEmailAction = nil
+                    }
+                )
+            }
+            .sheet(isPresented: $showMailComposer) {
+                if let details = emailDraftDetails, MFMailComposeViewController.canSendMail() {
+                    MailComposeView(
+                        recipients: details.recipients,
+                        ccRecipients: details.ccRecipients,
+                        subject: details.subject,
+                        body: details.body
+                    ) { result in
+                        let sent = result == .sent
+                        let executor = ActionExecutor.shared
+                        Task {
+                            if let action = executor.pendingEmailAction {
+                                await executor.completeEmailAction(action, sent: sent)
+                                if sent {
+                                    successMessage = "Email sent"
+                                    showSuccessAlert = true
+                                }
+                            }
+                        }
+                        showMailComposer = false
+                        emailDraftDetails = nil
+                    }
                 }
             }
             .alert("Error", isPresented: $viewModel.showError) {
@@ -109,9 +203,10 @@ struct SuggestionsView: View {
                     .swipeActions(edge: .leading) {
                         Button {
                             Task {
-                                let result = await viewModel.acceptSuggestion(suggestion)
-                                if let result = result, result.success && result.requiresUserInput == .none {
-                                    successMessage = result.message
+                                if let action = await viewModel.acceptSuggestionForEdit(suggestion) {
+                                    actionToEdit = action
+                                } else {
+                                    successMessage = "Suggestion accepted"
                                     showSuccessAlert = true
                                 }
                             }
@@ -322,7 +417,7 @@ struct SuggestionDetailSheet: View {
                         Button(action: onAccept) {
                             HStack {
                                 Image(systemName: "checkmark.circle.fill")
-                                Text(suggestion.suggestedAction != nil ? "Accept & Execute" : "Mark as Helpful")
+                                Text(suggestion.suggestedAction != nil ? "Accept & Edit" : "Mark as Helpful")
                             }
                             .frame(maxWidth: .infinity)
                             .padding()
@@ -458,6 +553,30 @@ class SuggestionsViewModel: ObservableObject {
             }
 
             return nil
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+            return nil
+        }
+    }
+
+    /// Accept a suggestion and return a PendingAction for editing (without executing)
+    func acceptSuggestionForEdit(_ suggestion: ProactiveSuggestion) async -> PendingAction? {
+        do {
+            let response = try await APIService.shared.acceptSuggestion(suggestionId: suggestion.id)
+            suggestions.removeAll { $0.id == suggestion.id }
+
+            guard let suggestedAction = response.suggestedAction else { return nil }
+
+            return PendingAction(
+                id: suggestion.id,
+                skill: suggestedAction.skill,
+                tool: suggestedAction.tool,
+                type: suggestedAction.tool,
+                params: suggestedAction.params,
+                status: "pending",
+                createdAt: suggestion.createdAt
+            )
         } catch {
             errorMessage = error.localizedDescription
             showError = true

@@ -15,6 +15,7 @@ struct ActionsView: View {
     @State private var emailDraftDetails: EmailDraftDetails?
     @State private var showSuccessAlert = false
     @State private var successMessage = ""
+    @State private var actionToEdit: PendingAction?
 
     var body: some View {
         NavigationStack {
@@ -123,16 +124,55 @@ struct ActionsView: View {
                     }
                 }
             }
+            .sheet(item: $actionToEdit) { action in
+                ActionEditSheet(
+                    action: action,
+                    onConfirm: { editedAction in
+                        actionToEdit = nil
+                        Task {
+                            let result = await viewModel.executeAction(editedAction)
+
+                            switch result.requiresUserInput {
+                            case .emailAddress:
+                                pendingEmailAction = editedAction
+                                emailInputText = ""
+                                showEmailInputSheet = true
+
+                            case .mailComposer:
+                                if let details = ActionExecutor.shared.getEmailDraftDetails(from: ActionExecutor.shared.pendingEmailAction ?? editedAction) {
+                                    emailDraftDetails = details
+                                    showMailComposer = true
+                                }
+
+                            case .phoneNumber:
+                                break
+
+                            case .none:
+                                if result.success {
+                                    successMessage = result.message
+                                    showSuccessAlert = true
+                                }
+                            }
+                        }
+                    },
+                    onCancel: {
+                        actionToEdit = nil
+                    }
+                )
+            }
             .sheet(item: $selectedSuggestion) { suggestion in
                 SuggestionDetailSheet(
                     suggestion: suggestion,
                     onAccept: {
                         Task {
-                            let result = await viewModel.acceptSuggestion(suggestion)
-                            selectedSuggestion = nil
-
-                            if let result = result, result.success && result.requiresUserInput == .none {
-                                successMessage = result.message
+                            if let action = await viewModel.acceptSuggestionForEdit(suggestion) {
+                                selectedSuggestion = nil
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    actionToEdit = action
+                                }
+                            } else {
+                                selectedSuggestion = nil
+                                successMessage = "Suggestion accepted"
                                 showSuccessAlert = true
                             }
                         }
@@ -280,28 +320,7 @@ struct ActionsView: View {
                         VStack(spacing: LisnSpacing.sm) {
                             ForEach(viewModel.pendingActions) { action in
                                 PendingActionRow(action: action) {
-                                    Task {
-                                        let result = await viewModel.executeAction(action)
-
-                                        switch result.requiresUserInput {
-                                        case .emailAddress:
-                                            pendingEmailAction = action
-                                            emailInputText = ""
-                                            showEmailInputSheet = true
-
-                                        case .mailComposer:
-                                            if let details = ActionExecutor.shared.getEmailDraftDetails(from: ActionExecutor.shared.pendingEmailAction ?? action) {
-                                                emailDraftDetails = details
-                                                showMailComposer = true
-                                            }
-
-                                        case .phoneNumber:
-                                            break
-
-                                        case .none:
-                                            break
-                                        }
-                                    }
+                                    actionToEdit = action
                                 }
                                 .padding(LisnSpacing.md)
                                 .lisnCardStyle()
@@ -810,6 +829,30 @@ class ActionsViewModel: ObservableObject {
             }
 
             return nil
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+            return nil
+        }
+    }
+
+    /// Accept a suggestion and return a PendingAction for editing (without executing)
+    func acceptSuggestionForEdit(_ suggestion: ProactiveSuggestion) async -> PendingAction? {
+        do {
+            let response = try await APIService.shared.acceptSuggestion(suggestionId: suggestion.id)
+            suggestions.removeAll { $0.id == suggestion.id }
+
+            guard let suggestedAction = response.suggestedAction else { return nil }
+
+            return PendingAction(
+                id: suggestion.id,
+                skill: suggestedAction.skill,
+                tool: suggestedAction.tool,
+                type: suggestedAction.tool,
+                params: suggestedAction.params,
+                status: "pending",
+                createdAt: suggestion.createdAt
+            )
         } catch {
             errorMessage = error.localizedDescription
             showError = true

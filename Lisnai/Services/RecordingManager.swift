@@ -244,14 +244,18 @@ class RecordingManager: NSObject, ObservableObject {
 
         // If it has an action skill, post notification for the app to handle
         if let skill = suggestion.actionSkill {
+            var userInfo: [String: Any] = [
+                "skill": skill,
+                "title": suggestion.title,
+                "body": suggestion.body,
+            ]
+            if let actionParams = suggestion.actionParams {
+                userInfo["actionParams"] = actionParams
+            }
             NotificationCenter.default.post(
                 name: Notification.Name("ExecuteSuggestionAction"),
                 object: nil,
-                userInfo: [
-                    "skill": skill,
-                    "title": suggestion.title,
-                    "body": suggestion.body,
-                ]
+                userInfo: userInfo
             )
         }
     }
@@ -551,6 +555,7 @@ class RecordingManager: NSObject, ObservableObject {
 
         // Reset all state
         isRecording = false
+        SuggestionMonitor.shared.isRecordingActive = false
         isPausedManually = false
         isPausedForCall = false
         isSuspendedForInterruption = false
@@ -692,6 +697,7 @@ class RecordingManager: NSObject, ObservableObject {
             try engine.start()
 
             isRecording = true
+            SuggestionMonitor.shared.isRecordingActive = true
             recordingStartTime = Date()
             startDurationTimer()
 
@@ -755,6 +761,7 @@ class RecordingManager: NSObject, ObservableObject {
         }
 
         isRecording = false
+        SuggestionMonitor.shared.isRecordingActive = false
         isPausedForCall = false
         isPausedManually = false
         isSuspendedForInterruption = false

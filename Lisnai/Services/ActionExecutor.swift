@@ -117,7 +117,7 @@ class ActionExecutor: ObservableObject {
     }
 
     /// Normalize hallucinated skill names to registered ones
-    private func normalizeSkill(_ skill: String) -> String {
+    nonisolated static func normalizeSkill(_ skill: String) -> String {
         switch skill {
         case "organization", "notes", "apple-notes":
             return "apple-notes"
@@ -135,7 +135,7 @@ class ActionExecutor: ObservableObject {
     }
 
     /// Normalize hallucinated tool names to registered ones
-    private func normalizeTool(_ tool: String, skill: String) -> String {
+    nonisolated static func normalizeTool(_ tool: String, skill: String) -> String {
         switch tool {
         case "note", "create_note", "add_note", "write_note":
             return "create_note"
@@ -168,8 +168,8 @@ class ActionExecutor: ObservableObject {
         let rawSkill: String = !skillFromAction.isEmpty ? skillFromAction : skillFromParams
 
         // Normalize hallucinated names to registered ones
-        let skill = normalizeSkill(rawSkill)
-        let tool = normalizeTool(rawTool, skill: skill)
+        let skill = Self.normalizeSkill(rawSkill)
+        let tool = Self.normalizeTool(rawTool, skill: skill)
 
         print("[ActionExecutor] Routing action — raw: \(rawSkill):\(rawTool) → normalized: \(skill):\(tool)")
 

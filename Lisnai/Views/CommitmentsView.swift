@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import MessageUI
 
 /// View for displaying and managing user commitments detected from conversations
 struct CommitmentsView: View {
@@ -8,6 +9,15 @@ struct CommitmentsView: View {
     @State private var selectedFilter: CommitmentFilter = .all
     @State private var selectedCommitment: Commitment?
     @State private var showDetailSheet = false
+    @State private var actionFromCommitment: PendingAction?
+    @State private var commitmentForAction: Commitment?
+    @State private var showSuccessAlert = false
+    @State private var successMessage = ""
+    @State private var showEmailInputSheet = false
+    @State private var emailInputText = ""
+    @State private var pendingEmailAction: PendingAction?
+    @State private var emailDraftDetails: EmailDraftDetails?
+    @State private var showMailComposer = false
 
     var body: some View {
         NavigationStack {
@@ -63,14 +73,119 @@ struct CommitmentsView: View {
                                 showDetailSheet = false
                                 selectedCommitment = nil
                             }
+                        },
+                        onTakeAction: { action in
+                            commitmentForAction = commitment
+                            showDetailSheet = false
+                            // Small delay so the detail sheet dismisses before the edit sheet presents
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                actionFromCommitment = action
+                            }
                         }
                     )
+                }
+            }
+            .sheet(item: $actionFromCommitment) { action in
+                ActionEditSheet(
+                    action: action,
+                    onConfirm: { editedAction in
+                        actionFromCommitment = nil
+                        Task {
+                            let result = await ActionExecutor.shared.executeAction(editedAction)
+
+                            switch result.requiresUserInput {
+                            case .emailAddress:
+                                pendingEmailAction = editedAction
+                                emailInputText = ""
+                                showEmailInputSheet = true
+
+                            case .mailComposer:
+                                if let details = ActionExecutor.shared.getEmailDraftDetails(from: ActionExecutor.shared.pendingEmailAction ?? editedAction) {
+                                    emailDraftDetails = details
+                                    showMailComposer = true
+                                }
+
+                            case .phoneNumber:
+                                break
+
+                            case .none:
+                                if result.success {
+                                    // Auto-complete the commitment
+                                    if let commitment = commitmentForAction {
+                                        await viewModel.completeCommitment(commitment)
+                                    }
+                                    successMessage = result.message
+                                    showSuccessAlert = true
+                                    commitmentForAction = nil
+                                }
+                            }
+                        }
+                    },
+                    onCancel: {
+                        actionFromCommitment = nil
+                        commitmentForAction = nil
+                    }
+                )
+            }
+            .sheet(isPresented: $showEmailInputSheet) {
+                EmailInputSheet(
+                    recipientName: pendingEmailAction?.params?["recipientName"]?.stringValue ?? "recipient",
+                    emailText: $emailInputText,
+                    onSubmit: { email in
+                        showEmailInputSheet = false
+                        Task {
+                            let executor = ActionExecutor.shared
+                            let result = await executor.addEmailAndExecute(email)
+                            if result.success && result.requiresUserInput == .mailComposer {
+                                if let details = executor.getEmailDraftDetails(from: executor.pendingEmailAction!) {
+                                    emailDraftDetails = details
+                                    showMailComposer = true
+                                }
+                            }
+                            pendingEmailAction = nil
+                        }
+                    },
+                    onCancel: {
+                        showEmailInputSheet = false
+                        pendingEmailAction = nil
+                    }
+                )
+            }
+            .sheet(isPresented: $showMailComposer) {
+                if let details = emailDraftDetails, MFMailComposeViewController.canSendMail() {
+                    MailComposeView(
+                        recipients: details.recipients,
+                        ccRecipients: details.ccRecipients,
+                        subject: details.subject,
+                        body: details.body
+                    ) { result in
+                        let sent = result == .sent
+                        let executor = ActionExecutor.shared
+                        Task {
+                            if let action = executor.pendingEmailAction {
+                                await executor.completeEmailAction(action, sent: sent)
+                                if sent, let commitment = commitmentForAction {
+                                    await viewModel.completeCommitment(commitment)
+                                    successMessage = "Email sent"
+                                    showSuccessAlert = true
+                                    commitmentForAction = nil
+                                }
+                            }
+                        }
+                        showMailComposer = false
+                        emailDraftDetails = nil
+                    }
                 }
             }
             .alert("Error", isPresented: $viewModel.showError) {
                 Button("OK") { }
             } message: {
                 Text(viewModel.errorMessage)
+            }
+            .alert("Success", isPresented: $showSuccessAlert) {
+                Button("OK") { }
+            } message: {
+                Text(successMessage)
             }
         }
     }
@@ -373,6 +488,7 @@ struct CommitmentRow: View {
 struct CommitmentDetailSheet: View {
     let commitment: Commitment
     let onComplete: () -> Void
+    var onTakeAction: ((PendingAction) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -428,12 +544,24 @@ struct CommitmentDetailSheet: View {
 
                     // Actions
                     if commitment.status != "completed" {
-                        LisnButton(
-                            title: "Mark as Complete",
-                            icon: "checkmark.circle.fill",
-                            style: .primary,
-                            action: onComplete
-                        )
+                        VStack(spacing: LisnSpacing.sm) {
+                            LisnButton(
+                                title: actionButtonLabel,
+                                icon: actionButtonIcon,
+                                style: .primary,
+                                action: {
+                                    let action = commitmentToAction(commitment)
+                                    onTakeAction?(action)
+                                }
+                            )
+
+                            LisnButton(
+                                title: "Mark as Complete",
+                                icon: "checkmark.circle.fill",
+                                style: .secondary,
+                                action: onComplete
+                            )
+                        }
                     }
                 }
                 .padding()
@@ -486,6 +614,101 @@ struct CommitmentDetailSheet: View {
         case "low": return LisnColors.accent
         default: return LisnColors.textSecondary
         }
+    }
+
+    // MARK: - Action Button
+
+    private var actionButtonLabel: String {
+        switch commitment.type.lowercased() {
+        case "call": return "Call"
+        case "meeting": return "Schedule Event"
+        case "followup", "follow_up": return "Send Message"
+        case "task", "deadline", "promise", "delivery": return "Set Reminder"
+        default: return "Set Reminder"
+        }
+    }
+
+    private var actionButtonIcon: String {
+        switch commitment.type.lowercased() {
+        case "call": return "phone.fill"
+        case "meeting": return "calendar"
+        case "followup", "follow_up": return "message.fill"
+        case "task", "deadline", "promise", "delivery": return "bell.fill"
+        default: return "bell.fill"
+        }
+    }
+
+    // MARK: - Commitment → Action Conversion
+
+    private func commitmentToAction(_ commitment: Commitment) -> PendingAction {
+        var params: [String: AnyCodable] = [:]
+        let skill: String
+        let tool: String
+
+        switch commitment.type.lowercased() {
+        case "call":
+            skill = "messaging"
+            tool = "make_call"
+            if let person = commitment.person {
+                // If person has digits, treat as phone number; otherwise as contact name
+                if person.contains(where: { $0.isNumber }) {
+                    params["contact"] = AnyCodable(person)
+                } else {
+                    params["contact"] = AnyCodable(person)
+                }
+            }
+
+        case "meeting":
+            skill = "apple-calendar"
+            tool = "create_event"
+            params["title"] = AnyCodable(commitment.description)
+            if let dueDate = commitment.dueDate {
+                params["startTime"] = AnyCodable(dueDate)
+            }
+            if let person = commitment.person {
+                params["notes"] = AnyCodable("Meeting with \(person)")
+            }
+
+        case "followup", "follow_up":
+            skill = "messaging"
+            tool = "send_message"
+            params["content"] = AnyCodable(commitment.description)
+            if let person = commitment.person {
+                params["recipient"] = AnyCodable(person)
+            }
+
+        case "task", "deadline", "promise", "delivery":
+            skill = "apple-reminders"
+            tool = "create_reminder"
+            params["title"] = AnyCodable(commitment.description)
+            if let dueDate = commitment.dueDate {
+                params["dueDateTime"] = AnyCodable(dueDate)
+            }
+            if let person = commitment.person {
+                params["person"] = AnyCodable(person)
+            }
+
+        default:
+            skill = "apple-reminders"
+            tool = "create_reminder"
+            params["title"] = AnyCodable(commitment.description)
+            if let dueDate = commitment.dueDate {
+                params["dueDateTime"] = AnyCodable(dueDate)
+            }
+            if let person = commitment.person {
+                params["person"] = AnyCodable(person)
+            }
+        }
+
+        return PendingAction(
+            id: commitment.id,
+            skill: skill,
+            tool: tool,
+            type: tool,
+            params: params,
+            status: "pending",
+            createdAt: commitment.createdAt
+        )
     }
 
     private func formattedDate(_ dateString: String) -> String {
