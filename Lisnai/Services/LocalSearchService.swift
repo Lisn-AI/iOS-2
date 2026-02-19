@@ -25,20 +25,30 @@ class LocalSearchService {
         threshold: Float = 0.3,
         context: ModelContext
     ) async -> [LocalSearchResult] {
+        print("[LocalSearch] Vector search — query=\"\(query.prefix(50))\", limit=\(limit), threshold=\(threshold)")
+
         // Step 1: Get query embedding from backend
         guard let queryEmbedding = await generateEmbedding(text: query) else {
+            print("[LocalSearch] Embedding generation failed, falling back to keyword search")
             // Fallback to keyword search
-            return keywordSearch(query: query, limit: limit, context: context)
+            let results = keywordSearch(query: query, limit: limit, context: context)
                 .map { LocalSearchResult(memory: $0, score: 0.5) }
+            print("[LocalSearch] Keyword fallback returned \(results.count) results")
+            return results
         }
+
+        print("[LocalSearch] Query embedding generated (\(queryEmbedding.count) dims)")
 
         // Step 2: Fetch all memories with embeddings
         let descriptor = FetchDescriptor<LocalMemory>(
             predicate: #Predicate { $0.embeddingData != nil }
         )
         guard let memories = try? context.fetch(descriptor), !memories.isEmpty else {
+            print("[LocalSearch] No local memories with embeddings found")
             return []
         }
+
+        print("[LocalSearch] Searching \(memories.count) local memories with vDSP cosine similarity")
 
         // Step 3: Compute cosine similarity for each memory
         var results: [LocalSearchResult] = []
@@ -53,7 +63,9 @@ class LocalSearchService {
 
         // Step 4: Sort by score and return top-k
         results.sort { $0.score > $1.score }
-        return Array(results.prefix(limit))
+        let topResults = Array(results.prefix(limit))
+        print("[LocalSearch] Found \(results.count) matches above threshold, returning top \(topResults.count) (best score=\(topResults.first?.score ?? 0))")
+        return topResults
     }
 
     // MARK: - Keyword Search (Fallback)

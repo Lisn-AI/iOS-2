@@ -10,6 +10,7 @@ class DataService: ObservableObject {
     @Published var isCloudMode: Bool {
         didSet {
             UserDefaults.standard.set(isCloudMode, forKey: "cloudBackupEnabled")
+            print("[DataService] Mode changed to \(isCloudMode ? "CLOUD" : "LOCAL-ONLY")")
         }
     }
 
@@ -18,6 +19,7 @@ class DataService: ObservableObject {
 
     init() {
         self.isCloudMode = UserDefaults.standard.bool(forKey: "cloudBackupEnabled")
+        print("[DataService] Initialized — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY")")
     }
 
     // MARK: - Chunk Processing
@@ -28,14 +30,17 @@ class DataService: ObservableObject {
         transcript: String,
         context: ModelContext
     ) async throws -> ChunkProcessResult {
+        print("[DataService] processChunk — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY"), session=\(request.recordingSessionId), chunk=\(request.chunkIndex)")
         let result = try await APIService.shared.processChunk(request)
 
         // Store locally when we get a memory back (finalized or single-chunk)
         if result.memoryId != nil {
+            print("[DataService] Storing memory locally — memoryId=\(result.memoryId ?? "nil"), hasEmbedding=\(result.embedding != nil)")
             localStore.storeMemoryFromResult(result, transcript: transcript, context: context)
 
             // In local-only mode, fetch derived data after a delay (Inngest processing)
             if !isCloudMode {
+                print("[DataService] LOCAL-ONLY: Scheduling derived data fetch in 12s")
                 Task {
                     try? await Task.sleep(nanoseconds: 12_000_000_000) // 12 seconds
                     await fetchAndStoreDerivedData(context: context)
@@ -56,6 +61,7 @@ class DataService: ObservableObject {
         modelContext: ModelContext? = nil
     ) async throws -> ChatResponse {
         if !isCloudMode, let ctx = modelContext {
+            print("[DataService] chat — LOCAL-ONLY: searching local memories to supplement")
             // Search local memories and send as supplement
             let localResults = await localSearch.searchMemories(
                 query: message,
@@ -73,6 +79,7 @@ class DataService: ObservableObject {
                 )
             }
 
+            print("[DataService] chat — LOCAL-ONLY: sending \(localPayloads.count) local memories as supplement")
             return try await APIService.shared.chatWithLocalMemories(
                 message: message,
                 history: history,
@@ -81,6 +88,7 @@ class DataService: ObservableObject {
             )
         }
 
+        print("[DataService] chat — CLOUD mode")
         return try await APIService.shared.chat(message: message, history: history, context: context)
     }
 
@@ -92,6 +100,7 @@ class DataService: ObservableObject {
         modelContext: ModelContext? = nil
     ) async throws -> AsyncStream<APIService.ChatStreamEvent> {
         if !isCloudMode, let ctx = modelContext {
+            print("[DataService] chatStream — LOCAL-ONLY: searching local memories to supplement")
             let localResults = await localSearch.searchMemories(
                 query: message,
                 limit: 5,
@@ -108,6 +117,7 @@ class DataService: ObservableObject {
                 )
             }
 
+            print("[DataService] chatStream — LOCAL-ONLY: sending \(localPayloads.count) local memories as supplement")
             return try await APIService.shared.chatStreamWithLocalMemories(
                 message: message,
                 history: history,
@@ -116,6 +126,7 @@ class DataService: ObservableObject {
             )
         }
 
+        print("[DataService] chatStream — CLOUD mode")
         return try await APIService.shared.chatStream(message: message, history: history, context: context)
     }
 
@@ -123,10 +134,12 @@ class DataService: ObservableObject {
 
     /// Get commitments — from API (always), store locally in local-only mode
     func getCommitments(status: String? = nil, context: ModelContext? = nil) async throws -> CommitmentsResponse {
+        print("[DataService] getCommitments — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY"), status=\(status ?? "all")")
         let response = try await APIService.shared.getCommitments(status: status)
 
         // Store locally
         if let ctx = context {
+            print("[DataService] Caching \(response.commitments.count) commitments locally")
             localStore.storeCommitments(response.commitments, context: ctx)
         }
 
@@ -147,9 +160,11 @@ class DataService: ObservableObject {
 
     /// Get suggestions — from API (always), store locally in local-only mode
     func getSuggestions(status: String? = nil, context: ModelContext? = nil) async throws -> SuggestionsResponse {
+        print("[DataService] getSuggestions — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY"), status=\(status ?? "all")")
         let response = try await APIService.shared.getSuggestions(status: status)
 
         if let ctx = context {
+            print("[DataService] Caching \(response.suggestions.count) suggestions locally")
             localStore.storeSuggestions(response.suggestions, context: ctx)
         }
 
@@ -170,9 +185,11 @@ class DataService: ObservableObject {
 
     /// Get briefing — from API, store locally
     func getBriefing(date: Date, context: ModelContext? = nil) async throws -> BriefingResponse {
+        print("[DataService] getBriefing — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY"), date=\(date)")
         let response = try await APIService.shared.getBriefing(date: date)
 
         if let ctx = context {
+            print("[DataService] Caching briefing locally for \(response.date)")
             localStore.storeBriefing(response, context: ctx)
         }
 
@@ -195,11 +212,13 @@ class DataService: ObservableObject {
         context: ModelContext? = nil
     ) async throws -> SearchResponse {
         if !isCloudMode, let ctx = context {
+            print("[DataService] searchMemories — LOCAL-ONLY: using on-device vector search, query=\"\(query.prefix(50))\"")
             let results = await localSearch.searchMemories(
                 query: query,
                 limit: limit,
                 context: ctx
             )
+            print("[DataService] Local search returned \(results.count) results")
 
             return SearchResponse(
                 results: results.map { result in
@@ -215,6 +234,7 @@ class DataService: ObservableObject {
             )
         }
 
+        print("[DataService] searchMemories — CLOUD mode, query=\"\(query.prefix(50))\"")
         return try await APIService.shared.searchMemories(query: query, limit: limit)
     }
 
@@ -222,14 +242,17 @@ class DataService: ObservableObject {
 
     /// After recording in local-only mode, fetch Inngest-generated data and store locally
     private func fetchAndStoreDerivedData(context: ModelContext) async {
+        print("[DataService] Fetching derived data (commitments + suggestions) from backend after Inngest processing...")
         do {
             // Fetch commitments
             let commitments = try await APIService.shared.getCommitments(status: "pending")
             localStore.storeCommitments(commitments.commitments, context: context)
+            print("[DataService] Stored \(commitments.commitments.count) commitments locally")
 
             // Fetch suggestions
             let suggestions = try await APIService.shared.getSuggestions(status: "pending")
             localStore.storeSuggestions(suggestions.suggestions, context: context)
+            print("[DataService] Stored \(suggestions.suggestions.count) suggestions locally")
         } catch {
             print("[DataService] Failed to fetch derived data: \(error)")
         }
