@@ -1,7 +1,9 @@
 import SwiftUI
+import SwiftData
 
 /// View for displaying daily briefings - summaries of the user's day
 struct BriefingsView: View {
+    @Environment(\.modelContext) private var modelContext
     @StateObject private var viewModel = BriefingsViewModel()
     @State private var selectedDate = Date()
     @State private var showDatePicker = false
@@ -34,10 +36,10 @@ struct BriefingsView: View {
                 }
             }
             .task {
-                await viewModel.loadBriefing(for: selectedDate)
+                await viewModel.loadBriefing(for: selectedDate, modelContext: modelContext)
             }
             .onChange(of: selectedDate) { _, newDate in
-                Task { await viewModel.loadBriefing(for: newDate) }
+                Task { await viewModel.loadBriefing(for: newDate, modelContext: modelContext) }
             }
             .alert("Error", isPresented: $viewModel.showError) {
                 Button("OK") { }
@@ -354,13 +356,13 @@ class BriefingsViewModel: ObservableObject {
     @Published var showError = false
     @Published var errorMessage = ""
 
-    private let api = APIService.shared
+    private let dataService = DataService.shared
 
-    func loadBriefing(for date: Date) async {
+    func loadBriefing(for date: Date, modelContext: ModelContext? = nil) async {
         isLoading = true
 
         do {
-            briefing = try await api.getBriefing(date: date)
+            briefing = try await dataService.getBriefing(date: date, context: modelContext)
         } catch {
             // If 404, no briefing exists for this date
             if case APIError.notFound = error {
@@ -378,7 +380,7 @@ class BriefingsViewModel: ObservableObject {
         isLoading = true
 
         do {
-            _ = try await api.triggerBriefing()
+            _ = try await APIService.shared.triggerBriefing()
             // Reload the briefing after triggering
             await loadBriefing(for: Date())
         } catch {

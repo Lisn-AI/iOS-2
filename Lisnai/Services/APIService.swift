@@ -69,11 +69,15 @@ class APIService: ObservableObject {
         let token = try await getAuthToken()
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
+        // Add cloud sync header
+        let cloudSync = UserDefaults.standard.bool(forKey: "cloudBackupEnabled")
+        request.setValue(cloudSync ? "true" : "false", forHTTPHeaderField: "X-Cloud-Sync")
+
         if let body = body {
             request.httpBody = body
         }
 
-        print("[APIService] \(method) \(endpoint)")
+        print("[APIService] \(method) \(endpoint) [cloudSync=\(cloudSync)]")
         return request
     }
 
@@ -536,6 +540,117 @@ class APIService: ObservableObject {
         )
         return try await execute(request)
     }
+
+    // MARK: - Embedding Proxy
+
+    /// Generate an embedding vector for local search
+    func generateEmbedding(text: String) async throws -> [Float] {
+        let body = EmbedRequest(text: text)
+        let request = try await createRequest(
+            endpoint: "/api/embed",
+            method: "POST",
+            body: try encoder.encode(body)
+        )
+        let response: EmbedResponse = try await execute(request)
+        return response.embedding
+    }
+
+    // MARK: - Chat with Local Memories
+
+    /// Send a chat message with supplementary local memories
+    func chatWithLocalMemories(
+        message: String,
+        history: [ChatHistoryItem] = [],
+        context: String? = nil,
+        localMemories: [LocalMemoryPayload] = []
+    ) async throws -> ChatResponse {
+        let body = ChatRequestWithLocal(
+            message: message,
+            history: history,
+            context: context,
+            localMemories: localMemories.isEmpty ? nil : localMemories
+        )
+
+        let request = try await createRequest(
+            endpoint: "/api/chat",
+            method: "POST",
+            body: try encoder.encode(body)
+        )
+
+        return try await execute(request)
+    }
+
+    /// Stream chat with local memories supplement
+    func chatStreamWithLocalMemories(
+        message: String,
+        history: [ChatHistoryItem] = [],
+        context: String? = nil,
+        localMemories: [LocalMemoryPayload] = []
+    ) async throws -> AsyncStream<ChatStreamEvent> {
+        let body = ChatRequestWithLocal(
+            message: message,
+            history: history,
+            context: context,
+            localMemories: localMemories.isEmpty ? nil : localMemories
+        )
+
+        var request = try await createRequest(
+            endpoint: "/api/chat/stream",
+            method: "POST",
+            body: try encoder.encode(body)
+        )
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw APIError.serverError(httpResponse.statusCode, "Stream failed with status \(httpResponse.statusCode)")
+        }
+
+        return AsyncStream { continuation in
+            let task = Task {
+                do {
+                    for try await line in bytes.lines {
+                        guard line.hasPrefix("data: ") else { continue }
+                        let jsonStr = String(line.dropFirst(6))
+
+                        guard let data = jsonStr.data(using: .utf8),
+                              let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let type = event["type"] as? String else { continue }
+
+                        switch type {
+                        case "sources":
+                            if let sources = event["sources"] as? [String] {
+                                continuation.yield(.sources(sources))
+                            }
+                        case "delta":
+                            if let text = event["text"] as? String {
+                                continuation.yield(.delta(text))
+                            }
+                        case "done":
+                            continuation.yield(.done)
+                        case "error":
+                            let errorMsg = event["error"] as? String ?? "Unknown stream error"
+                            continuation.yield(.error(errorMsg))
+                        default:
+                            break
+                        }
+                    }
+                } catch {
+                    continuation.yield(.error(error.localizedDescription))
+                }
+                continuation.finish()
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
 }
 
 // MARK: - Request Types
@@ -614,12 +729,13 @@ struct ChunkProcessResult: Codable {
     let status: String // "processed", "finalized", "single"
     let liveSuggestion: LiveSuggestion?
     let insight: RecordingInsightResponse?
+    let embedding: [Float]?
     // For single-chunk backward compatibility
     let chatResponse: String?
 
     enum CodingKeys: String, CodingKey {
         case recordingSessionId, chunkIndex, memoryId, sessionId
-        case title, summary, rollingSummary, status, liveSuggestion, insight, chatResponse
+        case title, summary, rollingSummary, status, liveSuggestion, insight, embedding, chatResponse
     }
 
     init(from decoder: Decoder) throws {
@@ -634,6 +750,7 @@ struct ChunkProcessResult: Codable {
         status = try container.decode(String.self, forKey: .status)
         liveSuggestion = try container.decodeIfPresent(LiveSuggestion.self, forKey: .liveSuggestion)
         insight = try container.decodeIfPresent(RecordingInsightResponse.self, forKey: .insight)
+        embedding = try container.decodeIfPresent([Float].self, forKey: .embedding)
         chatResponse = try container.decodeIfPresent(String.self, forKey: .chatResponse)
     }
 }
@@ -642,6 +759,29 @@ struct ChatRequest: Codable {
     let message: String
     let history: [ChatHistoryItem]
     let context: String?
+}
+
+struct ChatRequestWithLocal: Codable {
+    let message: String
+    let history: [ChatHistoryItem]
+    let context: String?
+    let localMemories: [LocalMemoryPayload]?
+}
+
+struct LocalMemoryPayload: Codable {
+    let id: String
+    let rawTranscript: String
+    let timestamp: String
+    let topics: [String]?
+    let people: [String]?
+}
+
+struct EmbedRequest: Codable {
+    let text: String
+}
+
+struct EmbedResponse: Codable {
+    let embedding: [Float]
 }
 
 struct ChatHistoryItem: Codable {

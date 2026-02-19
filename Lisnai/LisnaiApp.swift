@@ -202,7 +202,12 @@ struct LisnaiApp: App {
             Transcription.self,
             Summary.self,
             ChatMessage.self,
-            Insight.self
+            Insight.self,
+            LocalMemory.self,
+            LocalContact.self,
+            LocalCommitment.self,
+            LocalSuggestion.self,
+            LocalBriefing.self,
         ])
         let modelConfiguration = ModelConfiguration(
             schema: schema,

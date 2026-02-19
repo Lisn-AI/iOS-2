@@ -10,6 +10,9 @@ struct SettingsView: View {
     @State private var showPermissionRules = false
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
+    @State private var showCloudEnableConfirmation = false
+    @State private var showCloudDisableConfirmation = false
+    @State private var pendingCloudToggle: Bool? = nil
 
     // User preferences
     @AppStorage("cloudBackupEnabled") private var cloudBackupEnabled = false
@@ -62,7 +65,17 @@ struct SettingsView: View {
 
             // Cloud Backup Section
             Section {
-                Toggle(isOn: $cloudBackupEnabled) {
+                Toggle(isOn: Binding(
+                    get: { cloudBackupEnabled },
+                    set: { newValue in
+                        pendingCloudToggle = newValue
+                        if newValue {
+                            showCloudEnableConfirmation = true
+                        } else {
+                            showCloudDisableConfirmation = true
+                        }
+                    }
+                )) {
                     Label("Cloud Backup", systemImage: "icloud")
                 }
                 .listRowBackground(LisnColors.bgElevated)
@@ -83,7 +96,10 @@ struct SettingsView: View {
                 Text("Data")
                     .lisnSectionHeader()
             } footer: {
-                Text("Enable cloud backup to sync your transcriptions and summaries across devices.")
+                Text(cloudBackupEnabled
+                    ? "Your data is stored on our servers and synced across devices."
+                    : "Your data is stored locally on this device only. The server processes recordings but doesn't keep your data."
+                )
             }
 
             // Notifications Section
@@ -291,6 +307,28 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will permanently delete all your recordings, transcriptions, memories, and summaries. This action cannot be undone.")
+        }
+        .alert("Enable Cloud Backup?", isPresented: $showCloudEnableConfirmation) {
+            Button("Enable") {
+                cloudBackupEnabled = true
+                DataService.shared.isCloudMode = true
+            }
+            Button("Cancel", role: .cancel) {
+                pendingCloudToggle = nil
+            }
+        } message: {
+            Text("Future recordings will be stored on our servers and synced across devices. Your existing local data will remain on this device.")
+        }
+        .alert("Disable Cloud Backup?", isPresented: $showCloudDisableConfirmation) {
+            Button("Disable", role: .destructive) {
+                cloudBackupEnabled = false
+                DataService.shared.isCloudMode = false
+            }
+            Button("Cancel", role: .cancel) {
+                pendingCloudToggle = nil
+            }
+        } message: {
+            Text("New recordings will be stored locally only. Your existing cloud data will remain on the server but no new data will be uploaded.")
         }
         .task {
             await notificationService.setup()

@@ -444,7 +444,7 @@ struct HomeView: View {
     private func loadPendingCounts() async {
         do {
             async let actionsTask = APIService.shared.getPendingActions()
-            async let suggestionsTask = APIService.shared.getSuggestions(status: "pending")
+            async let suggestionsTask = DataService.shared.getSuggestions(context: modelContext)
 
             let (actionsResponse, suggestionsResponse) = try await (actionsTask, suggestionsTask)
             pendingActionsCount = actionsResponse.actions.count

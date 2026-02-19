@@ -1,7 +1,9 @@
 import SwiftUI
+import SwiftData
 
 /// View for displaying and managing user commitments detected from conversations
 struct CommitmentsView: View {
+    @Environment(\.modelContext) private var modelContext
     @StateObject private var viewModel = CommitmentsViewModel()
     @State private var selectedFilter: CommitmentFilter = .all
     @State private var selectedCommitment: Commitment?
@@ -39,17 +41,17 @@ struct CommitmentsView: View {
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { Task { await viewModel.refresh() } }) {
+                    Button(action: { Task { await viewModel.refresh(modelContext: modelContext) } }) {
                         Image(systemName: "arrow.clockwise")
                     }
                     .disabled(viewModel.isLoading)
                 }
             }
             .refreshable {
-                await viewModel.refresh()
+                await viewModel.refresh(modelContext: modelContext)
             }
             .task {
-                await viewModel.loadData()
+                await viewModel.loadData(modelContext: modelContext)
             }
             .sheet(isPresented: $showDetailSheet) {
                 if let commitment = selectedCommitment {
@@ -532,17 +534,17 @@ class CommitmentsViewModel: ObservableObject {
     @Published var showError = false
     @Published var errorMessage = ""
 
-    private let api = APIService.shared
+    private let dataService = DataService.shared
 
-    func loadData() async {
-        await refresh()
+    func loadData(modelContext: ModelContext? = nil) async {
+        await refresh(modelContext: modelContext)
     }
 
-    func refresh() async {
+    func refresh(modelContext: ModelContext? = nil) async {
         isLoading = true
 
         do {
-            let response = try await api.getCommitments()
+            let response = try await dataService.getCommitments(context: modelContext)
             commitments = response.commitments
         } catch {
             errorMessage = error.localizedDescription
@@ -554,7 +556,7 @@ class CommitmentsViewModel: ObservableObject {
 
     func completeCommitment(_ commitment: Commitment) async {
         do {
-            _ = try await api.completeCommitment(commitmentId: commitment.id)
+            _ = try await APIService.shared.completeCommitment(commitmentId: commitment.id)
 
             // Update local state
             if let index = commitments.firstIndex(where: { $0.id == commitment.id }) {

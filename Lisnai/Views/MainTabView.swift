@@ -76,7 +76,7 @@ struct MainTabView: View {
                 }
                 .allowsHitTesting(!showSettings)
                 .task {
-                    await actionsViewModel.loadData()
+                    await actionsViewModel.loadData(modelContext: modelContext)
                 }
 
                 // Dim overlay covers everything when menu is open
@@ -129,7 +129,7 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openActions)) { _ in
             selectedTab = .actions
-            Task { await actionsViewModel.refresh() }
+            Task { await actionsViewModel.refresh(modelContext: modelContext) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openSuggestions)) { _ in
             selectedTab = .actions

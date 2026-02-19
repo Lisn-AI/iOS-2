@@ -943,7 +943,11 @@ class RecordingManager: NSObject, ObservableObject {
             var summaryText = ""
             var chunkResult: ChunkProcessResult?
             do {
-                let result = try await APIService.shared.processChunk(chunkRequest)
+                let result = try await DataService.shared.processChunk(
+                    chunkRequest,
+                    transcript: labeledTranscript,
+                    context: modelContext!
+                )
                 summaryText = result.summary ?? ""
                 summary = summaryText
                 chunkResult = result
@@ -1254,7 +1258,12 @@ class RecordingManager: NSObject, ObservableObject {
         // Retry up to 3 times with exponential backoff
         for attempt in 1...3 {
             do {
-                let result = try await APIService.shared.processChunk(request)
+                let result: ChunkProcessResult
+                if let ctx = modelContext {
+                    result = try await DataService.shared.processChunk(request, transcript: transcript, context: ctx)
+                } else {
+                    result = try await APIService.shared.processChunk(request)
+                }
                 print("[Chunk] Backend processed chunk \(chunkIndex): status=\(result.status)")
 
                 // Check for live suggestion from backend
@@ -1285,7 +1294,12 @@ class RecordingManager: NSObject, ObservableObject {
         )
 
         do {
-            let result = try await APIService.shared.processChunk(request)
+            let result: ChunkProcessResult
+            if let ctx = modelContext {
+                result = try await DataService.shared.processChunk(request, transcript: "", context: ctx)
+            } else {
+                result = try await APIService.shared.processChunk(request)
+            }
             print("[Chunk] Finalization complete: title=\(result.title ?? "nil")")
             return result
         } catch {

@@ -1,7 +1,9 @@
 import SwiftUI
+import SwiftData
 
 /// View for displaying proactive suggestions from the AI
 struct SuggestionsView: View {
+    @Environment(\.modelContext) private var modelContext
     @StateObject private var viewModel = SuggestionsViewModel()
     @State private var selectedSuggestion: ProactiveSuggestion?
     @State private var showDetailSheet = false
@@ -23,17 +25,17 @@ struct SuggestionsView: View {
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { Task { await viewModel.refresh() } }) {
+                    Button(action: { Task { await viewModel.refresh(modelContext: modelContext) } }) {
                         Image(systemName: "arrow.clockwise")
                     }
                     .disabled(viewModel.isLoading)
                 }
             }
             .refreshable {
-                await viewModel.refresh()
+                await viewModel.refresh(modelContext: modelContext)
             }
             .task {
-                await viewModel.loadData()
+                await viewModel.loadData(modelContext: modelContext)
             }
             .sheet(isPresented: $showDetailSheet) {
                 if let suggestion = selectedSuggestion {
@@ -410,17 +412,17 @@ class SuggestionsViewModel: ObservableObject {
     @Published var showError = false
     @Published var errorMessage = ""
 
-    private let api = APIService.shared
+    private let dataService = DataService.shared
 
-    func loadData() async {
-        await refresh()
+    func loadData(modelContext: ModelContext? = nil) async {
+        await refresh(modelContext: modelContext)
     }
 
-    func refresh() async {
+    func refresh(modelContext: ModelContext? = nil) async {
         isLoading = true
 
         do {
-            let response = try await api.getSuggestions(status: "pending")
+            let response = try await dataService.getSuggestions(context: modelContext)
             suggestions = response.suggestions
         } catch {
             errorMessage = error.localizedDescription
@@ -432,7 +434,7 @@ class SuggestionsViewModel: ObservableObject {
 
     func acceptSuggestion(_ suggestion: ProactiveSuggestion) async -> ActionExecutionResult? {
         do {
-            let response = try await api.acceptSuggestion(suggestionId: suggestion.id)
+            let response = try await APIService.shared.acceptSuggestion(suggestionId: suggestion.id)
 
             // Remove from list
             suggestions.removeAll { $0.id == suggestion.id }
@@ -465,7 +467,7 @@ class SuggestionsViewModel: ObservableObject {
 
     func dismissSuggestion(_ suggestion: ProactiveSuggestion) async {
         do {
-            _ = try await api.dismissSuggestion(suggestionId: suggestion.id)
+            _ = try await APIService.shared.dismissSuggestion(suggestionId: suggestion.id)
 
             // Remove from list
             suggestions.removeAll { $0.id == suggestion.id }

@@ -17,7 +17,7 @@ class ChatService: ObservableObject {
     @Published var isStreaming: Bool = false
 
     private let modelContext: ModelContext
-    private let api = APIService.shared
+    private let dataService = DataService.shared
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -60,10 +60,11 @@ class ChatService: ObservableObject {
 
             var fullText = ""
 
-            let stream = try await api.chatStream(
+            let stream = try await dataService.chatStream(
                 message: content,
                 history: Array(history),
-                context: context
+                context: context,
+                modelContext: modelContext
             )
 
             for await event in stream {
@@ -140,7 +141,7 @@ class ChatService: ObservableObject {
         error = nil
 
         do {
-            let result = try await api.processTranscript(transcript, sessionId: sessionId)
+            let result = try await APIService.shared.processTranscript(transcript, sessionId: sessionId)
 
             if let chatResponse = result.chatResponse, !chatResponse.isEmpty {
                 let assistantMessage = ChatMessage(content: chatResponse, isUser: false)

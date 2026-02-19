@@ -119,7 +119,7 @@ final class CalendarViewModel: ObservableObject {
         briefing = nil
         Task {
             do {
-                let response = try await APIService.shared.getBriefing(date: date)
+                let response = try await DataService.shared.getBriefing(date: date)
                 self.briefing = response
             } catch {
                 // Silently fail — no briefing for this day

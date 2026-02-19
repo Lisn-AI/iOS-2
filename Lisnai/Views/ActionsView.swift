@@ -1,8 +1,10 @@
 import SwiftUI
+import SwiftData
 import MessageUI
 
 /// View for managing pending actions and permission requests
 struct ActionsView: View {
+    @Environment(\.modelContext) private var modelContext
     @ObservedObject var viewModel: ActionsViewModel
     @State private var selectedPermission: PendingPermission?
     @State private var selectedSuggestion: ProactiveSuggestion?
@@ -32,7 +34,7 @@ struct ActionsView: View {
                         .font(.system(size: 34, weight: .bold))
                         .foregroundColor(LisnColors.textPrimary)
                     Spacer()
-                    Button(action: { Task { await viewModel.refresh() } }) {
+                    Button(action: { Task { await viewModel.refresh(modelContext: modelContext) } }) {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 18, weight: .medium))
                             .foregroundColor(LisnColors.textSecondary)
@@ -45,7 +47,7 @@ struct ActionsView: View {
                 .background(.regularMaterial)
             }
             .refreshable {
-                await viewModel.refresh()
+                await viewModel.refresh(modelContext: modelContext)
             }
             .sheet(item: $selectedPermission) { permission in
                 PermissionApprovalSheet(
@@ -697,18 +699,18 @@ class ActionsViewModel: ObservableObject {
     @Published var showError = false
     @Published var errorMessage = ""
 
-    private let api = APIService.shared
+    private let dataService = DataService.shared
 
-    func loadData() async {
-        await refresh()
+    func loadData(modelContext: ModelContext? = nil) async {
+        await refresh(modelContext: modelContext)
     }
 
-    func refresh() async {
+    func refresh(modelContext: ModelContext? = nil) async {
         isLoading = true
 
         // Fetch each independently to avoid cascading failures
         do {
-            let actionsResponse = try await api.getPendingActions()
+            let actionsResponse = try await APIService.shared.getPendingActions()
             pendingActions = actionsResponse.actions
         } catch {
             print("[ActionsView] Failed to load actions: \(error)")
@@ -716,7 +718,7 @@ class ActionsViewModel: ObservableObject {
         }
 
         do {
-            let permissionsResponse = try await api.getPendingPermissions()
+            let permissionsResponse = try await APIService.shared.getPendingPermissions()
             pendingPermissions = permissionsResponse.pending
         } catch {
             print("[ActionsView] Failed to load permissions: \(error)")
@@ -724,7 +726,7 @@ class ActionsViewModel: ObservableObject {
         }
 
         do {
-            let suggestionsResponse = try await api.getSuggestions(status: "pending")
+            let suggestionsResponse = try await dataService.getSuggestions(context: modelContext)
             suggestions = suggestionsResponse.suggestions
         } catch {
             print("[ActionsView] Failed to load suggestions: \(error)")
@@ -736,7 +738,7 @@ class ActionsViewModel: ObservableObject {
 
     func approvePermission(_ permission: PendingPermission, scope: PermissionScope, createRule: Bool) async -> ActionExecutionResult? {
         do {
-            _ = try await api.approvePermission(
+            _ = try await APIService.shared.approvePermission(
                 permissionId: permission.id,
                 scope: scope,
                 createRule: createRule
@@ -769,7 +771,7 @@ class ActionsViewModel: ObservableObject {
 
     func denyPermission(_ permission: PendingPermission) async {
         do {
-            _ = try await api.denyPermission(permissionId: permission.id)
+            _ = try await APIService.shared.denyPermission(permissionId: permission.id)
 
             // Remove from list
             pendingPermissions.removeAll { $0.id == permission.id }
@@ -782,7 +784,7 @@ class ActionsViewModel: ObservableObject {
 
     func acceptSuggestion(_ suggestion: ProactiveSuggestion) async -> ActionExecutionResult? {
         do {
-            let response = try await api.acceptSuggestion(suggestionId: suggestion.id)
+            let response = try await APIService.shared.acceptSuggestion(suggestionId: suggestion.id)
 
             suggestions.removeAll { $0.id == suggestion.id }
 
@@ -808,7 +810,7 @@ class ActionsViewModel: ObservableObject {
 
     func dismissSuggestion(_ suggestion: ProactiveSuggestion) async {
         do {
-            _ = try await api.dismissSuggestion(suggestionId: suggestion.id)
+            _ = try await APIService.shared.dismissSuggestion(suggestionId: suggestion.id)
             suggestions.removeAll { $0.id == suggestion.id }
         } catch {
             errorMessage = error.localizedDescription

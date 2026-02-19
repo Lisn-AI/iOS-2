@@ -1,7 +1,9 @@
 import SwiftUI
+import SwiftData
 
 /// View for searching through memories with natural language queries
 struct MemorySearchView: View {
+    @Environment(\.modelContext) private var modelContext
     @StateObject private var viewModel = MemorySearchViewModel()
     @State private var searchText = ""
     @State private var isSearching = false
@@ -208,7 +210,7 @@ struct MemorySearchView: View {
         guard !searchText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         isSearching = true
         Task {
-            await viewModel.search(query: searchText)
+            await viewModel.search(query: searchText, modelContext: modelContext)
             isSearching = false
         }
     }
@@ -298,13 +300,17 @@ class MemorySearchViewModel: ObservableObject {
     @Published var showError = false
     @Published var errorMessage = ""
 
-    private let api = APIService.shared
+    private let dataService = DataService.shared
 
-    func search(query: String) async {
+    func search(query: String, modelContext: ModelContext? = nil) async {
         isLoading = true
 
         do {
-            let response = try await api.searchMemories(query: query, limit: 20)
+            let response = try await dataService.searchMemories(
+                query: query,
+                limit: 20,
+                context: modelContext
+            )
             results = response.results
         } catch {
             errorMessage = error.localizedDescription
