@@ -128,7 +128,7 @@ class ActionExecutor: ObservableObject {
         case "calendar", "apple-calendar", "scheduling":
             return "apple-calendar"
         case "email-draft", "email":
-            return "messaging"
+            return "email-draft"
         default:
             return skill
         }
@@ -145,7 +145,8 @@ class ActionExecutor: ObservableObject {
             return "create_reminder"
         case "calendar", "create_event", "add_event", "schedule_event", "create_calendar_event":
             return "create_event"
-        case "email", "send_email", "compose_email", "draft_email":
+        case "email", "send_email", "compose_email", "draft_email",
+             "create_email_draft", "intelligent_email_draft":
             return "send_email"
         case "message", "send_message", "sms", "text":
             return "send_message"
@@ -180,6 +181,8 @@ class ActionExecutor: ObservableObject {
             return await createCalendarEvent(from: action)
         case "apple-notes":
             return await createNote(from: action)
+        case "email-draft":
+            return await prepareEmailDraft(from: action)
         case "messaging":
             switch tool {
             case "send_email":
@@ -750,6 +753,7 @@ class ActionExecutor: ObservableObject {
 
     /// Create a note — opens share sheet since there's no direct Apple Notes API
     @Published var pendingNoteText: String?
+    @Published var pendingNoteAction: PendingAction?
     @Published var showNoteShareSheet = false
 
     func createNote(from action: PendingAction) async -> ActionExecutionResult {
@@ -771,17 +775,26 @@ class ActionExecutor: ObservableObject {
         }
         noteText += content
 
-        // Store the note text and trigger share sheet in UI
+        // Store the note text and action — defer completion until share sheet is dismissed
         pendingNoteText = noteText
+        pendingNoteAction = action
         showNoteShareSheet = true
-
-        await completeActionOnBackend(action)
 
         return ActionExecutionResult(
             success: true,
             message: "Note ready — choose where to save it",
             nativeItemId: nil
         )
+    }
+
+    /// Complete or cancel note action after share sheet is dismissed
+    func completeNoteAction(shared: Bool) async {
+        if shared, let action = pendingNoteAction {
+            await completeActionOnBackend(action)
+        }
+        pendingNoteAction = nil
+        pendingNoteText = nil
+        showNoteShareSheet = false
     }
 
     // MARK: - Deep Link Handling

@@ -103,12 +103,21 @@ struct ActionsView: View {
             }
             .sheet(isPresented: Binding(
                 get: { ActionExecutor.shared.showNoteShareSheet },
-                set: { ActionExecutor.shared.showNoteShareSheet = $0 }
+                set: { newValue in
+                    if !newValue {
+                        // Sheet dismissed without sharing — cancel the action
+                        Task {
+                            await ActionExecutor.shared.completeNoteAction(shared: false)
+                        }
+                    }
+                    ActionExecutor.shared.showNoteShareSheet = newValue
+                }
             )) {
                 if let noteText = ActionExecutor.shared.pendingNoteText {
                     NoteShareSheet(text: noteText) {
-                        ActionExecutor.shared.showNoteShareSheet = false
-                        ActionExecutor.shared.pendingNoteText = nil
+                        Task {
+                            await ActionExecutor.shared.completeNoteAction(shared: true)
+                        }
                         successMessage = "Note shared successfully"
                         showSuccessAlert = true
                     }

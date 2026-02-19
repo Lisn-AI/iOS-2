@@ -1400,22 +1400,26 @@ class RecordingManager: NSObject, ObservableObject {
     private func handleActionResult(_ actionResult: ActionResult) async {
         if actionResult.permissionRequired {
             // Permission is needed - send a local notification
-            print("Backend: Permission required for action")
+            print("[RecordingManager] Permission required for action")
             if let permissionId = actionResult.pendingPermissionId,
                let message = actionResult.permissionMessage {
                 await requestPermissionNotification(permissionId: permissionId, message: message)
             }
         } else if actionResult.executed, let toolResult = actionResult.toolResult {
-            // Action was executed successfully
-            print("Backend: Action executed - \(toolResult.message)")
+            print("[RecordingManager] Action executed - \(toolResult.message)")
 
-            // If there's an iOS deep link, we could open it
-            if let deepLink = toolResult.iosDeepLink {
-                print("Backend: iOS action available - \(deepLink)")
-                // Store for later execution via ActionsView
+            // Auto-execute the action on-device via deep link
+            if let deepLink = toolResult.iosDeepLink,
+               let url = URL(string: deepLink) {
+                let result = await ActionExecutor.shared.handleDeepLink(url)
+                if let result = result {
+                    print("[RecordingManager] Auto-executed action: success=\(result.success), \(result.message)")
+                } else {
+                    print("[RecordingManager] Deep link returned nil result for: \(deepLink)")
+                }
             }
         } else if let error = actionResult.error {
-            print("Backend: Action failed - \(error)")
+            print("[RecordingManager] Action failed - \(error)")
         }
     }
 
