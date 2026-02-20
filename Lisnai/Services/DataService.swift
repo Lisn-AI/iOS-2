@@ -53,19 +53,19 @@ class DataService: ObservableObject {
 
     // MARK: - Chat
 
-    /// Chat with AI — supplements with local memories in local-only mode
+    /// Chat with AI — always searches local memories and sends as context
     func chat(
         message: String,
         history: [ChatHistoryItem] = [],
         context: String? = nil,
         modelContext: ModelContext? = nil
     ) async throws -> ChatResponse {
-        if !isCloudMode, let ctx = modelContext {
-            print("[DataService] chat — LOCAL-ONLY: searching local memories to supplement")
-            // Search local memories and send as supplement
+        // Always search local memories to send as context (vector search is the source of truth)
+        if let ctx = modelContext {
+            print("[DataService] chat — searching local memories to send as context")
             let localResults = await localSearch.searchMemories(
                 query: message,
-                limit: 5,
+                limit: 10,
                 context: ctx
             )
 
@@ -79,7 +79,7 @@ class DataService: ObservableObject {
                 )
             }
 
-            print("[DataService] chat — LOCAL-ONLY: sending \(localPayloads.count) local memories as supplement")
+            print("[DataService] chat — sending \(localPayloads.count) local memories as context")
             return try await APIService.shared.chatWithLocalMemories(
                 message: message,
                 history: history,
@@ -88,22 +88,23 @@ class DataService: ObservableObject {
             )
         }
 
-        print("[DataService] chat — CLOUD mode")
+        print("[DataService] chat — no modelContext, calling API without local memories")
         return try await APIService.shared.chat(message: message, history: history, context: context)
     }
 
-    /// Stream chat — supplements with local memories in local-only mode
+    /// Stream chat — always searches local memories and sends as context
     func chatStream(
         message: String,
         history: [ChatHistoryItem] = [],
         context: String? = nil,
         modelContext: ModelContext? = nil
     ) async throws -> AsyncStream<APIService.ChatStreamEvent> {
-        if !isCloudMode, let ctx = modelContext {
-            print("[DataService] chatStream — LOCAL-ONLY: searching local memories to supplement")
+        // Always search local memories to send as context
+        if let ctx = modelContext {
+            print("[DataService] chatStream — searching local memories to send as context")
             let localResults = await localSearch.searchMemories(
                 query: message,
-                limit: 5,
+                limit: 10,
                 context: ctx
             )
 
@@ -117,7 +118,7 @@ class DataService: ObservableObject {
                 )
             }
 
-            print("[DataService] chatStream — LOCAL-ONLY: sending \(localPayloads.count) local memories as supplement")
+            print("[DataService] chatStream — sending \(localPayloads.count) local memories as context")
             return try await APIService.shared.chatStreamWithLocalMemories(
                 message: message,
                 history: history,
@@ -126,7 +127,7 @@ class DataService: ObservableObject {
             )
         }
 
-        print("[DataService] chatStream — CLOUD mode")
+        print("[DataService] chatStream — no modelContext, calling API without local memories")
         return try await APIService.shared.chatStream(message: message, history: history, context: context)
     }
 

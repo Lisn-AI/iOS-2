@@ -716,6 +716,7 @@ struct ProcessChunkRequest: Codable {
     let timestamp: String?
     let chunkStartTime: Double?
     let chunkEndTime: Double?
+    let contextMemories: [LocalMemoryPayload]?
 }
 
 struct ChunkProcessResult: Codable {

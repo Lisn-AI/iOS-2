@@ -623,7 +623,8 @@ class RecordingManager: NSObject, ObservableObject {
             isFinal: true,
             timestamp: ISO8601DateFormatter().string(from: Date()),
             chunkStartTime: nil,
-            chunkEndTime: nil
+            chunkEndTime: nil,
+            contextMemories: nil
         )
 
         do {
@@ -936,7 +937,12 @@ class RecordingManager: NSObject, ObservableObject {
 
             transcription = labeledTranscript
 
-            // Step 4: Send through chunk endpoint for unified processing (includes insight generation)
+            // Step 4: Search local memories for context, then send through chunk endpoint
+            let contextMemories = await searchLocalContextMemories(
+                query: labeledTranscript.suffix(500).description,
+                limit: 10
+            )
+
             let chunkRequest = ProcessChunkRequest(
                 recordingSessionId: recordingSessionId,
                 chunkIndex: 0,
@@ -944,7 +950,8 @@ class RecordingManager: NSObject, ObservableObject {
                 isFinal: true,
                 timestamp: ISO8601DateFormatter().string(from: Date()),
                 chunkStartTime: 0,
-                chunkEndTime: totalDuration
+                chunkEndTime: totalDuration,
+                contextMemories: contextMemories.isEmpty ? nil : contextMemories
             )
 
             var summaryText = ""
@@ -1252,6 +1259,12 @@ class RecordingManager: NSObject, ObservableObject {
         startTime: TimeInterval,
         endTime: TimeInterval
     ) async {
+        // Search local memories using accumulated transcript as context
+        let contextMemories = await searchLocalContextMemories(
+            query: accumulatedTranscript.suffix(500).description,
+            limit: 10
+        )
+
         let request = ProcessChunkRequest(
             recordingSessionId: recordingSessionId,
             chunkIndex: chunkIndex,
@@ -1259,7 +1272,8 @@ class RecordingManager: NSObject, ObservableObject {
             isFinal: isFinal,
             timestamp: ISO8601DateFormatter().string(from: Date()),
             chunkStartTime: startTime,
-            chunkEndTime: endTime
+            chunkEndTime: endTime,
+            contextMemories: contextMemories.isEmpty ? nil : contextMemories
         )
 
         // Retry up to 3 times with exponential backoff
@@ -1290,6 +1304,12 @@ class RecordingManager: NSObject, ObservableObject {
 
     /// Send finalization signal to consolidate the recording
     private func sendFinalizationSignal(sessionId: String) async -> ChunkProcessResult? {
+        // Search with more context for finalization (full accumulated transcript)
+        let contextMemories = await searchLocalContextMemories(
+            query: accumulatedTranscript.suffix(1000).description,
+            limit: 15
+        )
+
         let request = ProcessChunkRequest(
             recordingSessionId: sessionId,
             chunkIndex: -1,
@@ -1297,7 +1317,8 @@ class RecordingManager: NSObject, ObservableObject {
             isFinal: true,
             timestamp: ISO8601DateFormatter().string(from: Date()),
             chunkStartTime: nil,
-            chunkEndTime: nil
+            chunkEndTime: nil,
+            contextMemories: contextMemories.isEmpty ? nil : contextMemories
         )
 
         do {
@@ -1312,6 +1333,26 @@ class RecordingManager: NSObject, ObservableObject {
         } catch {
             print("[Chunk] Finalization failed: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    /// Search local memories for context to send with API requests
+    private func searchLocalContextMemories(query: String, limit: Int = 10) async -> [LocalMemoryPayload] {
+        guard let ctx = modelContext else { return [] }
+        let results = await LocalSearchService.shared.searchMemories(
+            query: query,
+            limit: limit,
+            threshold: 0.3,
+            context: ctx
+        )
+        return results.map { result in
+            LocalMemoryPayload(
+                id: result.memory.serverMemoryId ?? result.memory.id.uuidString,
+                rawTranscript: result.memory.rawTranscript,
+                timestamp: ISO8601DateFormatter().string(from: result.memory.timestamp),
+                topics: result.memory.topics.isEmpty ? nil : result.memory.topics,
+                people: result.memory.people.isEmpty ? nil : result.memory.people
+            )
         }
     }
 
