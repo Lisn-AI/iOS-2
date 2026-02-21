@@ -37,15 +37,8 @@ class DataService: ObservableObject {
         if result.memoryId != nil {
             print("[DataService] Storing memory locally — memoryId=\(result.memoryId ?? "nil"), hasEmbedding=\(result.embedding != nil)")
             localStore.storeMemoryFromResult(result, transcript: transcript, context: context)
-
-            // In local-only mode, fetch derived data after a delay (Inngest processing)
-            if !isCloudMode {
-                print("[DataService] LOCAL-ONLY: Scheduling derived data fetch in 12s")
-                Task {
-                    try? await Task.sleep(nanoseconds: 12_000_000_000) // 12 seconds
-                    await fetchAndStoreDerivedData(context: context)
-                }
-            }
+            // Derived data (commitments, suggestions) now arrives via push notifications
+            // and is stored directly in SwiftData — no polling delay needed
         }
 
         return result
@@ -133,17 +126,25 @@ class DataService: ObservableObject {
 
     // MARK: - Commitments
 
-    /// Get commitments — from API (always), store locally in local-only mode
+    /// Get commitments — SwiftData first, API fallback + local cache
     func getCommitments(status: String? = nil, context: ModelContext? = nil) async throws -> CommitmentsResponse {
         print("[DataService] getCommitments — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY"), status=\(status ?? "all")")
-        let response = try await APIService.shared.getCommitments(status: status)
 
-        // Store locally
+        // Local-first: read from SwiftData
+        if let ctx = context {
+            let local = getLocalCommitments(status: status ?? "pending", context: ctx)
+            if !local.isEmpty {
+                print("[DataService] Returning \(local.count) commitments from SwiftData")
+                return CommitmentsResponse(commitments: local.map { $0.toAPICommitment() })
+            }
+        }
+
+        // Fallback: API fetch + store locally
+        let response = try await APIService.shared.getCommitments(status: status)
         if let ctx = context {
             print("[DataService] Caching \(response.commitments.count) commitments locally")
             localStore.storeCommitments(response.commitments, context: ctx)
         }
-
         return response
     }
 
@@ -159,16 +160,25 @@ class DataService: ObservableObject {
 
     // MARK: - Suggestions
 
-    /// Get suggestions — from API (always), store locally in local-only mode
+    /// Get suggestions — SwiftData first, API fallback + local cache
     func getSuggestions(status: String? = nil, context: ModelContext? = nil) async throws -> SuggestionsResponse {
         print("[DataService] getSuggestions — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY"), status=\(status ?? "all")")
-        let response = try await APIService.shared.getSuggestions(status: status)
 
+        // Local-first: read from SwiftData
+        if let ctx = context {
+            let local = getLocalSuggestions(status: status ?? "pending", context: ctx)
+            if !local.isEmpty {
+                print("[DataService] Returning \(local.count) suggestions from SwiftData")
+                return SuggestionsResponse(suggestions: local.map { $0.toAPISuggestion() })
+            }
+        }
+
+        // Fallback: API fetch + store locally
+        let response = try await APIService.shared.getSuggestions(status: status)
         if let ctx = context {
             print("[DataService] Caching \(response.suggestions.count) suggestions locally")
             localStore.storeSuggestions(response.suggestions, context: ctx)
         }
-
         return response
     }
 
@@ -184,16 +194,37 @@ class DataService: ObservableObject {
 
     // MARK: - Briefings
 
-    /// Get briefing — from API, store locally
+    /// Get briefing — SwiftData first, API fallback + local cache
     func getBriefing(date: Date, context: ModelContext? = nil) async throws -> BriefingResponse {
         print("[DataService] getBriefing — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY"), date=\(date)")
-        let response = try await APIService.shared.getBriefing(date: date)
 
+        // Local-first: read from SwiftData
+        if let ctx = context {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            let dateStr = formatter.string(from: date)
+            if let local = getLocalBriefing(date: dateStr, context: ctx) {
+                print("[DataService] Returning briefing from SwiftData for \(dateStr)")
+                return BriefingResponse(briefing: BriefingData(
+                    id: nil, userId: nil,
+                    date: local.date,
+                    summary: local.summary,
+                    keyMoments: local.keyMoments,
+                    peopleInteracted: local.peopleInteracted,
+                    pendingTasks: local.pendingTasks,
+                    mood: local.mood,
+                    insightfulObservation: local.insightfulObservation,
+                    createdAt: nil, updatedAt: nil
+                ))
+            }
+        }
+
+        // Fallback: API fetch + store locally
+        let response = try await APIService.shared.getBriefing(date: date)
         if let ctx = context {
             print("[DataService] Caching briefing locally for \(response.date)")
             localStore.storeBriefing(response, context: ctx)
         }
-
         return response
     }
 
@@ -239,23 +270,22 @@ class DataService: ObservableObject {
         return try await APIService.shared.searchMemories(query: query, limit: limit)
     }
 
-    // MARK: - Derived Data Fetching
+    // MARK: - Manual Refresh
 
-    /// After recording in local-only mode, fetch Inngest-generated data and store locally
-    private func fetchAndStoreDerivedData(context: ModelContext) async {
-        print("[DataService] Fetching derived data (commitments + suggestions) from backend after Inngest processing...")
+    /// Manually refresh derived data from API (commitments + suggestions)
+    /// Primarily used as a fallback if push delivery is missed
+    func refreshDerivedData(context: ModelContext) async {
+        print("[DataService] Manual refresh of derived data from API...")
         do {
-            // Fetch commitments
             let commitments = try await APIService.shared.getCommitments(status: "pending")
             localStore.storeCommitments(commitments.commitments, context: context)
-            print("[DataService] Stored \(commitments.commitments.count) commitments locally")
+            print("[DataService] Refreshed \(commitments.commitments.count) commitments")
 
-            // Fetch suggestions
             let suggestions = try await APIService.shared.getSuggestions(status: "pending")
             localStore.storeSuggestions(suggestions.suggestions, context: context)
-            print("[DataService] Stored \(suggestions.suggestions.count) suggestions locally")
+            print("[DataService] Refreshed \(suggestions.suggestions.count) suggestions")
         } catch {
-            print("[DataService] Failed to fetch derived data: \(error)")
+            print("[DataService] Failed to refresh derived data: \(error)")
         }
     }
 }

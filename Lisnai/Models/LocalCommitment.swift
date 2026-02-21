@@ -35,4 +35,18 @@ final class LocalCommitment {
         self.status = status
         self.isSynced = isSynced
     }
+
+    /// Convert to API Commitment model for views that expect the API type
+    func toAPICommitment() -> Commitment {
+        Commitment(
+            id: serverCommitmentId ?? id.uuidString,
+            description: commitmentDescription,
+            type: type,
+            person: person,
+            dueDate: dueDate?.ISO8601Format(),
+            urgency: urgency,
+            status: status,
+            createdAt: createdAt.ISO8601Format()
+        )
+    }
 }

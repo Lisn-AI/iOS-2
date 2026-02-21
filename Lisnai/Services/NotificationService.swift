@@ -1,6 +1,7 @@
 import Foundation
 import UserNotifications
 import UIKit
+import SwiftData
 
 /// Manages push notifications, notification categories, and APNs token registration
 @MainActor
@@ -11,7 +12,11 @@ class NotificationService: ObservableObject {
     @Published var deviceToken: String?
     @Published var apnsToken: Data?
 
+    /// ModelContext for storing push data directly into SwiftData
+    var modelContext: ModelContext?
+
     private let api = APIService.shared
+    private let localStore = LocalStoreService.shared
 
     // MARK: - Notification Categories
 
@@ -420,6 +425,52 @@ class NotificationService: ObservableObject {
         }
     }
 
+    // MARK: - Push Data Processing (Local-First)
+
+    /// Extract and store data payloads from push notifications into SwiftData
+    func processIncomingDataPayload(_ userInfo: [AnyHashable: Any]) {
+        guard let syncType = userInfo["syncType"] as? String,
+              let syncDataString = userInfo["syncData"] as? String,
+              let syncData = syncDataString.data(using: .utf8),
+              let context = modelContext else {
+            return
+        }
+
+        let decoder = JSONDecoder()
+
+        switch syncType {
+        case "commitments":
+            if let commitments = try? decoder.decode([Commitment].self, from: syncData) {
+                localStore.storeCommitments(commitments, context: context)
+                print("[NotificationService] Stored \(commitments.count) commitments from push")
+            }
+        case "suggestions":
+            if let suggestions = try? decoder.decode([ProactiveSuggestion].self, from: syncData) {
+                localStore.storeSuggestions(suggestions, context: context)
+                print("[NotificationService] Stored \(suggestions.count) suggestions from push")
+            }
+        case "briefing":
+            if let briefing = try? decoder.decode(PushBriefingPayload.self, from: syncData) {
+                let data = BriefingData(
+                    id: nil, userId: nil,
+                    date: briefing.date,
+                    summary: briefing.summary,
+                    keyMoments: briefing.keyMoments,
+                    peopleInteracted: briefing.peopleInteracted,
+                    pendingTasks: briefing.pendingTasks,
+                    mood: briefing.mood,
+                    insightfulObservation: briefing.insightfulObservation,
+                    createdAt: nil, updatedAt: nil
+                )
+                let response = BriefingResponse(briefing: data)
+                localStore.storeBriefing(response, context: context)
+                print("[NotificationService] Stored briefing from push for \(briefing.date)")
+            }
+        default:
+            break
+        }
+    }
+
     // MARK: - Local Notifications
 
     /// Schedule a local notification
@@ -466,6 +517,19 @@ class NotificationService: ObservableObject {
             print("[NotificationService] Failed to update badge: \(error)")
         }
     }
+}
+
+// MARK: - Push Briefing Payload
+
+/// Lightweight Codable struct matching the briefing JSON embedded in push notifications
+struct PushBriefingPayload: Codable {
+    let date: String
+    let summary: String
+    let mood: String?
+    let insightfulObservation: String?
+    let keyMoments: [String]
+    let peopleInteracted: [String]
+    let pendingTasks: [String]
 }
 
 // MARK: - Extension for notification handling

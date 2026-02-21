@@ -34,4 +34,20 @@ final class LocalSuggestion {
         self.status = status
         self.isSynced = isSynced
     }
+
+    /// Convert to API ProactiveSuggestion model for views that expect the API type
+    func toAPISuggestion() -> ProactiveSuggestion {
+        ProactiveSuggestion(
+            id: serverSuggestionId ?? id.uuidString,
+            type: type,
+            title: title,
+            body: body,
+            confidence: confidence,
+            reasoning: reasoning ?? "",
+            suggestedAction: nil,
+            basedOnMemoryIds: nil,
+            status: status,
+            createdAt: createdAt.ISO8601Format()
+        )
+    }
 }

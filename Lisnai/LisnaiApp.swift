@@ -94,6 +94,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         print("[AppDelegate] Failed to register for remote notifications: \(error.localizedDescription)")
     }
 
+    // Handle background push notifications with data payloads
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        Task { @MainActor in
+            NotificationService.shared.processIncomingDataPayload(userInfo)
+            completionHandler(.newData)
+        }
+    }
+
     // Handle Google Sign In URL callback
     func application(_ app: UIApplication,
                      open url: URL,
@@ -110,6 +120,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let userInfo = notification.request.content.userInfo
+
+        // Store push data payload locally before showing the notification
+        Task { @MainActor in
+            NotificationService.shared.processIncomingDataPayload(userInfo)
+        }
 
         // Check notification type - for some types we might want different behavior
         if let notificationType = userInfo["type"] as? String ?? userInfo["notificationType"] as? String {
@@ -231,6 +246,10 @@ struct LisnaiApp: App {
                     .environmentObject(authService)
                     .onOpenURL { url in
                         handleDeepLink(url)
+                    }
+                    .onAppear {
+                        // Provide SwiftData context to NotificationService for push data storage
+                        NotificationService.shared.modelContext = sharedModelContainer.mainContext
                     }
 
                 if showSplash {
