@@ -14,6 +14,8 @@ final class LocalSuggestion {
     var status: String = "pending"
     var isSynced: Bool = false
     var createdAt: Date = Date()
+    var suggestedActionJSON: String?
+    var basedOnMemoryIds: [String]?
 
     init(
         serverSuggestionId: String? = nil,
@@ -23,7 +25,9 @@ final class LocalSuggestion {
         confidence: Double = 0.5,
         reasoning: String? = nil,
         status: String = "pending",
-        isSynced: Bool = false
+        isSynced: Bool = false,
+        suggestedActionJSON: String? = nil,
+        basedOnMemoryIds: [String]? = nil
     ) {
         self.serverSuggestionId = serverSuggestionId
         self.type = type
@@ -33,19 +37,26 @@ final class LocalSuggestion {
         self.reasoning = reasoning
         self.status = status
         self.isSynced = isSynced
+        self.suggestedActionJSON = suggestedActionJSON
+        self.basedOnMemoryIds = basedOnMemoryIds
     }
 
     /// Convert to API ProactiveSuggestion model for views that expect the API type
     func toAPISuggestion() -> ProactiveSuggestion {
-        ProactiveSuggestion(
+        var action: SuggestedAction? = nil
+        if let json = suggestedActionJSON,
+           let data = json.data(using: .utf8) {
+            action = try? JSONDecoder().decode(SuggestedAction.self, from: data)
+        }
+        return ProactiveSuggestion(
             id: serverSuggestionId ?? id.uuidString,
             type: type,
             title: title,
             body: body,
             confidence: confidence,
             reasoning: reasoning ?? "",
-            suggestedAction: nil,
-            basedOnMemoryIds: nil,
+            suggestedAction: action,
+            basedOnMemoryIds: basedOnMemoryIds,
             status: status,
             createdAt: createdAt.ISO8601Format()
         )

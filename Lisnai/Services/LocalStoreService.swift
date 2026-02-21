@@ -81,7 +81,9 @@ class LocalStoreService {
                 confidence: suggestion.confidence,
                 reasoning: suggestion.reasoning,
                 status: suggestion.status,
-                isSynced: true
+                isSynced: true,
+                suggestedActionJSON: encodeSuggestedAction(suggestion.suggestedAction),
+                basedOnMemoryIds: suggestion.basedOnMemoryIds
             )
             context.insert(local)
             print("[LocalStore] Suggestion saved — id=\(local.serverSuggestionId ?? "local"), type=\(local.type), title=\(local.title)")
@@ -124,6 +126,14 @@ class LocalStoreService {
             print("[LocalStore] Briefing saved — date=\(local.date)")
         }
         try? context.save()
+    }
+
+    // MARK: - Helpers
+
+    private func encodeSuggestedAction(_ action: SuggestedAction?) -> String? {
+        guard let action = action else { return nil }
+        guard let data = try? JSONEncoder().encode(action) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     // MARK: - Contact Storage
