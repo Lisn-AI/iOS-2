@@ -442,15 +442,22 @@ struct HomeView: View {
     // MARK: - Helpers
 
     private func loadPendingCounts() async {
+        // Load actions (direct API — may fail if backend DB is down)
         do {
-            async let actionsTask = APIService.shared.getPendingActions()
-            async let suggestionsTask = DataService.shared.getSuggestions(context: modelContext)
-
-            let (actionsResponse, suggestionsResponse) = try await (actionsTask, suggestionsTask)
+            let actionsResponse = try await APIService.shared.getPendingActions()
             pendingActionsCount = actionsResponse.actions.count
+        } catch {
+            print("[HomeView] Failed to load actions count: \(error.localizedDescription)")
+            pendingActionsCount = 0
+        }
+
+        // Load suggestions (local-first, never throws user-visible errors)
+        do {
+            let suggestionsResponse = try await DataService.shared.getSuggestions(context: modelContext)
             pendingSuggestionsCount = suggestionsResponse.suggestions.count
         } catch {
-            print("Failed to load pending counts: \(error)")
+            print("[HomeView] Failed to load suggestions count: \(error.localizedDescription)")
+            pendingSuggestionsCount = 0
         }
     }
 

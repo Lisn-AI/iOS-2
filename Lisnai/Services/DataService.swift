@@ -126,7 +126,7 @@ class DataService: ObservableObject {
 
     // MARK: - Commitments
 
-    /// Get commitments — SwiftData first, API fallback + local cache
+    /// Get commitments — SwiftData first, API fallback (silent on error)
     func getCommitments(status: String? = nil, context: ModelContext? = nil) async throws -> CommitmentsResponse {
         print("[DataService] getCommitments — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY"), status=\(status ?? "all")")
 
@@ -139,13 +139,18 @@ class DataService: ObservableObject {
             }
         }
 
-        // Fallback: API fetch + store locally
-        let response = try await APIService.shared.getCommitments(status: status)
-        if let ctx = context {
-            print("[DataService] Caching \(response.commitments.count) commitments locally")
-            localStore.storeCommitments(response.commitments, context: ctx)
+        // Fallback: try API, return empty on failure (data arrives via push)
+        do {
+            let response = try await APIService.shared.getCommitments(status: status)
+            if let ctx = context {
+                print("[DataService] Caching \(response.commitments.count) commitments locally")
+                localStore.storeCommitments(response.commitments, context: ctx)
+            }
+            return response
+        } catch {
+            print("[DataService] API fallback failed for commitments, returning empty: \(error.localizedDescription)")
+            return CommitmentsResponse(commitments: [])
         }
-        return response
     }
 
     /// Get local commitments (for when cloud data has been cleaned up)
@@ -160,7 +165,7 @@ class DataService: ObservableObject {
 
     // MARK: - Suggestions
 
-    /// Get suggestions — SwiftData first, API fallback + local cache
+    /// Get suggestions — SwiftData first, API fallback (silent on error)
     func getSuggestions(status: String? = nil, context: ModelContext? = nil) async throws -> SuggestionsResponse {
         print("[DataService] getSuggestions — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY"), status=\(status ?? "all")")
 
@@ -173,13 +178,18 @@ class DataService: ObservableObject {
             }
         }
 
-        // Fallback: API fetch + store locally
-        let response = try await APIService.shared.getSuggestions(status: status)
-        if let ctx = context {
-            print("[DataService] Caching \(response.suggestions.count) suggestions locally")
-            localStore.storeSuggestions(response.suggestions, context: ctx)
+        // Fallback: try API, return empty on failure (data arrives via push)
+        do {
+            let response = try await APIService.shared.getSuggestions(status: status)
+            if let ctx = context {
+                print("[DataService] Caching \(response.suggestions.count) suggestions locally")
+                localStore.storeSuggestions(response.suggestions, context: ctx)
+            }
+            return response
+        } catch {
+            print("[DataService] API fallback failed for suggestions, returning empty: \(error.localizedDescription)")
+            return SuggestionsResponse(suggestions: [])
         }
-        return response
     }
 
     /// Get local suggestions
@@ -194,7 +204,7 @@ class DataService: ObservableObject {
 
     // MARK: - Briefings
 
-    /// Get briefing — SwiftData first, API fallback + local cache
+    /// Get briefing — SwiftData first, API fallback (silent on error)
     func getBriefing(date: Date, context: ModelContext? = nil) async throws -> BriefingResponse {
         print("[DataService] getBriefing — mode=\(isCloudMode ? "CLOUD" : "LOCAL-ONLY"), date=\(date)")
 
@@ -219,13 +229,18 @@ class DataService: ObservableObject {
             }
         }
 
-        // Fallback: API fetch + store locally
-        let response = try await APIService.shared.getBriefing(date: date)
-        if let ctx = context {
-            print("[DataService] Caching briefing locally for \(response.date)")
-            localStore.storeBriefing(response, context: ctx)
+        // Fallback: try API, return empty on failure (data arrives via push)
+        do {
+            let response = try await APIService.shared.getBriefing(date: date)
+            if let ctx = context {
+                print("[DataService] Caching briefing locally for \(response.date)")
+                localStore.storeBriefing(response, context: ctx)
+            }
+            return response
+        } catch {
+            print("[DataService] API fallback failed for briefing, returning empty: \(error.localizedDescription)")
+            return BriefingResponse(briefing: nil)
         }
-        return response
     }
 
     /// Get local briefing
