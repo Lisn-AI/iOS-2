@@ -429,28 +429,44 @@ class NotificationService: ObservableObject {
 
     /// Extract and store data payloads from push notifications into SwiftData
     func processIncomingDataPayload(_ userInfo: [AnyHashable: Any]) {
-        guard let syncType = userInfo["syncType"] as? String,
-              let syncDataString = userInfo["syncData"] as? String,
-              let syncData = syncDataString.data(using: .utf8),
-              let context = modelContext else {
+        guard let syncType = userInfo["syncType"] as? String else {
+            // Not a data-push notification — normal notification, skip silently
             return
         }
 
-        let decoder = JSONDecoder()
+        guard let syncDataString = userInfo["syncData"] as? String,
+              let syncData = syncDataString.data(using: .utf8) else {
+            print("[NotificationService] ERROR: syncType=\(syncType) but syncData is missing or invalid")
+            return
+        }
+
+        guard let context = modelContext else {
+            print("[NotificationService] ERROR: modelContext is nil — cannot store \(syncType) data from push!")
+            return
+        }
+
+        print("[NotificationService] Processing push data: syncType=\(syncType), dataSize=\(syncData.count) bytes")
 
         switch syncType {
         case "commitments":
-            if let commitments = try? decoder.decode([Commitment].self, from: syncData) {
+            do {
+                let commitments = try JSONDecoder().decode([Commitment].self, from: syncData)
                 localStore.storeCommitments(commitments, context: context)
                 print("[NotificationService] Stored \(commitments.count) commitments from push")
+            } catch {
+                print("[NotificationService] ERROR decoding commitments: \(error)")
             }
         case "suggestions":
-            if let suggestions = try? decoder.decode([ProactiveSuggestion].self, from: syncData) {
+            do {
+                let suggestions = try JSONDecoder().decode([ProactiveSuggestion].self, from: syncData)
                 localStore.storeSuggestions(suggestions, context: context)
                 print("[NotificationService] Stored \(suggestions.count) suggestions from push")
+            } catch {
+                print("[NotificationService] ERROR decoding suggestions: \(error)")
             }
         case "briefing":
-            if let briefing = try? decoder.decode(PushBriefingPayload.self, from: syncData) {
+            do {
+                let briefing = try JSONDecoder().decode(PushBriefingPayload.self, from: syncData)
                 let data = BriefingData(
                     id: nil, userId: nil,
                     date: briefing.date,
@@ -465,9 +481,11 @@ class NotificationService: ObservableObject {
                 let response = BriefingResponse(briefing: data)
                 localStore.storeBriefing(response, context: context)
                 print("[NotificationService] Stored briefing from push for \(briefing.date)")
+            } catch {
+                print("[NotificationService] ERROR decoding briefing: \(error)")
             }
         default:
-            break
+            print("[NotificationService] Unknown syncType: \(syncType)")
         }
     }
 

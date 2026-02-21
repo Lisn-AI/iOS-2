@@ -210,6 +210,12 @@ struct LisnaiApp: App {
 
     @State private var showSplash = true
 
+    init() {
+        // Set modelContext on NotificationService IMMEDIATELY so push data
+        // is never dropped. .onAppear is too late — pushes can arrive before it fires.
+        NotificationService.shared.modelContext = sharedModelContainer.mainContext
+    }
+
     /// SwiftData model container for local persistence
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -246,10 +252,6 @@ struct LisnaiApp: App {
                     .environmentObject(authService)
                     .onOpenURL { url in
                         handleDeepLink(url)
-                    }
-                    .onAppear {
-                        // Provide SwiftData context to NotificationService for push data storage
-                        NotificationService.shared.modelContext = sharedModelContainer.mainContext
                     }
 
                 if showSplash {
