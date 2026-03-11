@@ -6,6 +6,13 @@ import FirebaseAuth
 /// All processing happens server-side - memories are searched and context is injected automatically
 @MainActor
 class ChatService: ObservableObject {
+    /// User's first name extracted from Firebase Auth displayName
+    var userFirstName: String? {
+        guard let displayName = Auth.auth().currentUser?.displayName else { return nil }
+        let firstName = displayName.components(separatedBy: " ").first
+        return firstName?.isEmpty == true ? nil : firstName
+    }
+
     @Published var messages: [ChatMessage] = []
     @Published var isLoading: Bool = false
     @Published var error: String?
@@ -43,6 +50,20 @@ class ChatService: ObservableObject {
         error = nil
         lastSources = []
 
+        // Timeout: if stuck in thinking state for 45s with no stream data, show error
+        let timeoutTask = Task { @MainActor in
+            try await Task.sleep(nanoseconds: 45_000_000_000) // 45 seconds
+            if self.isLoading && !self.isStreaming {
+                self.error = "Response timed out. Please try again."
+                self.isLoading = false
+                self.isStreaming = false
+                // Remove empty placeholder assistant message if present
+                if let last = self.messages.last, !last.isUser, last.content.isEmpty {
+                    self.messages.removeLast()
+                }
+            }
+        }
+
         do {
             // Build conversation history from recent messages (limit to 6)
             let history = messages.suffix(6).map { message in
@@ -64,19 +85,63 @@ class ChatService: ObservableObject {
                 message: content,
                 history: Array(history),
                 context: context,
-                modelContext: modelContext
+                modelContext: modelContext,
+                userName: userFirstName
             )
 
             for await event in stream {
                 switch event {
                 case .sources(let sources):
                     lastSources = sources
+                    if let data = try? JSONEncoder().encode(sources),
+                       let json = String(data: data, encoding: .utf8) {
+                        assistantMessage.sourcesJSON = json
+                    }
                     print("[ChatService] Sources: \(sources)")
+
+                case .toolCall(let id, let skill, let tool, let params):
+                    // Tool call is progress — stop showing thinking indicator
+                    if isLoading {
+                        isLoading = false
+                        timeoutTask.cancel()
+                    }
+                    let toolCall = InlineToolCall.from(id: id, skill: skill, tool: tool, params: params)
+                    var existing = assistantMessage.decodedToolCalls ?? []
+                    existing.append(toolCall)
+                    if let data = try? JSONEncoder().encode(existing),
+                       let json = String(data: data, encoding: .utf8) {
+                        assistantMessage.toolCallsJSON = json
+                    }
+                    print("[ChatService] Tool call: \(skill):\(tool)")
+
+                case .toolResult(let id, let skill, let tool, let result):
+                    var existing = assistantMessage.decodedToolCalls ?? []
+                    if let idx = existing.firstIndex(where: { $0.id == id }) {
+                        existing[idx].resultMessage = result.message
+                        existing[idx].actionId = result.actionId
+                        existing[idx].pendingPermissionId = result.pendingPermissionId
+                        if result.status == "permission_required" {
+                            existing[idx].status = .permissionRequired
+                        } else if result.success {
+                            existing[idx].status = .completed
+                        } else {
+                            existing[idx].status = .failed
+                        }
+                        if let data = try? JSONEncoder().encode(existing),
+                           let json = String(data: data, encoding: .utf8) {
+                            assistantMessage.toolCallsJSON = json
+                        }
+                    }
+                    print("[ChatService] Tool result: \(skill):\(tool) → \(result.status)")
+
+                case .stepFinish(let finishReason):
+                    print("[ChatService] Step finished: \(finishReason)")
 
                 case .delta(let chunk):
                     if !isStreaming {
                         isStreaming = true
                         isLoading = false
+                        timeoutTask.cancel() // Got data, cancel timeout
                     }
                     fullText += chunk
                     streamingText = fullText
@@ -84,7 +149,9 @@ class ChatService: ObservableObject {
                     assistantMessage.content = fullText
 
                 case .done:
+                    timeoutTask.cancel()
                     isStreaming = false
+                    isLoading = false
                     streamingText = ""
                     // Persist the complete message
                     assistantMessage.content = fullText
@@ -105,7 +172,8 @@ class ChatService: ObservableObject {
             }
 
             // If stream finished without a .done event
-            if isStreaming {
+            timeoutTask.cancel()
+            if isStreaming || isLoading {
                 isStreaming = false
                 streamingText = ""
                 isLoading = false
@@ -113,10 +181,14 @@ class ChatService: ObservableObject {
                     assistantMessage.content = fullText
                     modelContext.insert(assistantMessage)
                     try? modelContext.save()
+                } else if assistantMessage.content.isEmpty {
+                    // Remove empty placeholder if no text was ever received
+                    messages.removeLast()
                 }
             }
 
         } catch let apiError as APIError {
+            timeoutTask.cancel()
             self.error = apiError.localizedDescription
             isStreaming = false
             isLoading = false
@@ -125,6 +197,7 @@ class ChatService: ObservableObject {
             }
             print("[ChatService] API ERROR: \(apiError)")
         } catch {
+            timeoutTask.cancel()
             self.error = error.localizedDescription
             isStreaming = false
             isLoading = false
