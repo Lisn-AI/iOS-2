@@ -102,28 +102,6 @@ struct ActionsView: View {
                     }
                 }
             }
-            .sheet(isPresented: Binding(
-                get: { ActionExecutor.shared.showNoteShareSheet },
-                set: { newValue in
-                    if !newValue {
-                        // Sheet dismissed without sharing — cancel the action
-                        Task {
-                            await ActionExecutor.shared.completeNoteAction(shared: false)
-                        }
-                    }
-                    ActionExecutor.shared.showNoteShareSheet = newValue
-                }
-            )) {
-                if let noteText = ActionExecutor.shared.pendingNoteText {
-                    NoteShareSheet(text: noteText) {
-                        Task {
-                            await ActionExecutor.shared.completeNoteAction(shared: true)
-                        }
-                        successMessage = "Note shared successfully"
-                        showSuccessAlert = true
-                    }
-                }
-            }
             .sheet(item: $actionToEdit) { action in
                 ActionEditSheet(
                     action: action,
@@ -838,26 +816,27 @@ class ActionsViewModel: ObservableObject {
 
     /// Accept a suggestion and return a PendingAction for editing (without executing)
     func acceptSuggestionForEdit(_ suggestion: ProactiveSuggestion) async -> PendingAction? {
+        // Try to notify the backend, but don't depend on its response for the action data
         do {
-            let response = try await APIService.shared.acceptSuggestion(suggestionId: suggestion.id)
-            suggestions.removeAll { $0.id == suggestion.id }
-
-            guard let suggestedAction = response.suggestedAction else { return nil }
-
-            return PendingAction(
-                id: suggestion.id,
-                skill: suggestedAction.skill,
-                tool: suggestedAction.tool,
-                type: suggestedAction.tool,
-                params: suggestedAction.params,
-                status: "pending",
-                createdAt: suggestion.createdAt
-            )
+            _ = try await APIService.shared.acceptSuggestion(suggestionId: suggestion.id)
         } catch {
-            errorMessage = error.localizedDescription
-            showError = true
-            return nil
+            print("[ActionsVM] Backend accept failed (non-fatal): \(error)")
         }
+
+        suggestions.removeAll { $0.id == suggestion.id }
+
+        // Use the suggestedAction from the local suggestion object (SwiftData cache)
+        guard let suggestedAction = suggestion.suggestedAction else { return nil }
+
+        return PendingAction(
+            id: suggestion.id,
+            skill: suggestedAction.skill,
+            tool: suggestedAction.tool,
+            type: suggestedAction.tool,
+            params: suggestedAction.params,
+            status: "pending",
+            createdAt: suggestion.createdAt
+        )
     }
 
     func dismissSuggestion(_ suggestion: ProactiveSuggestion) async {

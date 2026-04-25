@@ -6,7 +6,9 @@ struct MainTabView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var recordingManager: RecordingManager
     @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var subscriptionService: SubscriptionService
     @State private var selectedTab: Tab = .home
+    @State private var showPaywall = false
     @State private var showBriefings = false
     @State private var showCommitments = false
     @State private var showSettings = false
@@ -15,11 +17,15 @@ struct MainTabView: View {
     @State private var showPermissionRules = false
     @StateObject private var actionsViewModel = ActionsViewModel()
     @StateObject private var keyboardObserver = KeyboardObserver()
+    @ObservedObject private var actionExecutor = ActionExecutor.shared
 
     // Live suggestion action state
     @State private var liveSuggestionAction: PendingAction?
     @State private var showSuggestionSuccess = false
     @State private var suggestionSuccessMessage = ""
+
+    // Recording action edit state
+    @State private var recordingActionToEdit: PendingAction?
 
     enum Tab: String, CaseIterable {
         case home = "Home"
@@ -125,6 +131,14 @@ struct MainTabView: View {
         .sheet(isPresented: $showPermissionRules) {
             PermissionRulesView()
         }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+                .environmentObject(subscriptionService)
+        }
+        // Paywall disabled — will enforce via Apple IAP later
+        // .onReceive(NotificationCenter.default.publisher(for: .showPaywall)) { _ in
+        //     showPaywall = true
+        // }
         // Handle notification navigation
         .onReceive(NotificationCenter.default.publisher(for: .openBriefing)) { _ in
             showBriefings = true
@@ -202,6 +216,44 @@ struct MainTabView: View {
                     liveSuggestionAction = nil
                 }
             )
+        }
+        // Listen for actions from recording that need edit sheet
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("PresentActionEditSheet"))) { notification in
+            guard let action = notification.userInfo?["action"] as? PendingAction else { return }
+            recordingActionToEdit = action
+        }
+        .sheet(item: $recordingActionToEdit) { action in
+            ActionEditSheet(
+                action: action,
+                onConfirm: { editedAction in
+                    recordingActionToEdit = nil
+                    Task {
+                        let result = await ActionExecutor.shared.executeAction(editedAction)
+                        if result.success && result.requiresUserInput == .none {
+                            suggestionSuccessMessage = result.message
+                            showSuggestionSuccess = true
+                        }
+                    }
+                },
+                onCancel: {
+                    recordingActionToEdit = nil
+                }
+            )
+        }
+        .sheet(isPresented: $actionExecutor.showNoteShareSheet, onDismiss: {
+            Task {
+                await actionExecutor.completeNoteAction(shared: false)
+            }
+        }) {
+            if let noteText = actionExecutor.pendingNoteText {
+                NoteShareSheet(text: noteText) {
+                    Task {
+                        await actionExecutor.completeNoteAction(shared: true)
+                    }
+                    suggestionSuccessMessage = "Note saved successfully"
+                    showSuggestionSuccess = true
+                }
+            }
         }
         .alert("Success", isPresented: $showSuggestionSuccess) {
             Button("OK") { }
@@ -297,6 +349,24 @@ struct MainTabView: View {
                 .padding(.horizontal, LisnSpacing.lg)
 
             VStack(alignment: .leading, spacing: 0) {
+                // Upgrade button (for non-max users)
+                if !subscriptionService.isMax {
+                    Button {
+                        closeThen { showPaywall = true }
+                    } label: {
+                        HStack(spacing: LisnSpacing.sm) {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(LisnColors.accent)
+                            Text(subscriptionService.isPro ? "Go Max" : "Upgrade to Pro")
+                                .font(LisnFont.labelLarge())
+                                .foregroundStyle(LisnColors.accent)
+                        }
+                        .padding(.horizontal, LisnSpacing.lg)
+                        .padding(.vertical, LisnSpacing.sm)
+                    }
+                }
+
                 sideMenuItem(icon: "gear", title: "Settings") {
                     closeThen { showSettingsPage = true }
                 }
@@ -373,12 +443,7 @@ private struct PillTabBar: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(LisnColors.bgPrimary)
-                    .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 4)
-                    .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: 1)
-            )
+            .modifier(LiquidGlassCapsuleModifier())
 
             // Calendar button overlaid on top, exceeding the pill
             RaisedCalendarButton(selectedTab: $selectedTab)
@@ -405,6 +470,26 @@ private struct PillTabBar: View {
             .foregroundStyle(selectedTab == tab ? LisnColors.textPrimary : LisnColors.textTertiary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
+        }
+    }
+}
+
+// MARK: - Liquid Glass Modifiers
+
+/// Pill tab bar: native Liquid Glass on iOS 26+, opaque capsule fallback on older
+private struct LiquidGlassCapsuleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .glassEffect(.regular, in: .capsule)
+        } else {
+            content
+                .background(
+                    Capsule()
+                        .fill(LisnColors.bgPrimary)
+                        .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 4)
+                        .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: 1)
+                )
         }
     }
 }

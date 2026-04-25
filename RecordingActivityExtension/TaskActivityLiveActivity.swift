@@ -11,9 +11,7 @@ struct TaskActivityLiveActivity: Widget {
             DynamicIsland {
                 // Expanded UI (when user long-presses)
                 DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: context.state.taskIcon)
-                        .font(.title)
-                        .foregroundColor(priorityColor(context.state.priority))
+                    GlowingIcon(systemName: context.state.taskIcon, color: priorityColor(context.state.priority), size: .title2)
                 }
 
                 DynamicIslandExpandedRegion(.center) {
@@ -66,7 +64,13 @@ struct TaskActivityLiveActivity: Widget {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
-                            .background(priorityColor(context.state.priority))
+                            .background(
+                                LinearGradient(
+                                    colors: [priorityColor(context.state.priority), priorityColor(context.state.priority).opacity(0.7)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
                             .foregroundColor(.white)
                             .cornerRadius(12)
                         }
@@ -80,9 +84,9 @@ struct TaskActivityLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                // Compact leading (left pill)
+                // Compact leading (left pill) — gradient tint
                 Image(systemName: context.state.taskIcon)
-                    .foregroundColor(priorityColor(context.state.priority))
+                    .foregroundStyle(LinearGradient(colors: [priorityColor(context.state.priority), priorityColor(context.state.priority).opacity(0.6)], startPoint: .top, endPoint: .bottom))
             } compactTrailing: {
                 // Compact trailing (right pill)
                 if context.state.remainingCount > 1 {
@@ -96,9 +100,10 @@ struct TaskActivityLiveActivity: Widget {
                         .foregroundColor(priorityColor(context.state.priority))
                 }
             } minimal: {
-                // Minimal view (when another app has priority)
+                // Minimal view — gradient icon
                 Image(systemName: context.state.taskIcon)
-                    .foregroundColor(priorityColor(context.state.priority))
+                    .font(.caption2)
+                    .foregroundStyle(LinearGradient(colors: [priorityColor(context.state.priority), priorityColor(context.state.priority).opacity(0.6)], startPoint: .top, endPoint: .bottom))
             }
         }
     }
@@ -153,16 +158,8 @@ struct TaskLockScreenView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Priority indicator
-            Circle()
-                .fill(priorityColor(context.state.priority))
-                .frame(width: 8, height: 8)
-
-            // Task icon
-            Image(systemName: context.state.taskIcon)
-                .font(.title2)
-                .foregroundColor(priorityColor(context.state.priority))
-                .frame(width: 40)
+            // Task icon with gradient ring
+            LockScreenIconBadge(systemName: context.state.taskIcon, color: priorityColor(context.state.priority))
 
             // Content
             VStack(alignment: .leading, spacing: 4) {
@@ -214,13 +211,19 @@ struct TaskLockScreenView: View {
 
                     Spacer()
 
-                    // Priority badge
+                    // Priority badge — gradient pill
                     Text(context.state.priority.capitalized)
                         .font(.caption2)
-                        .fontWeight(.medium)
+                        .fontWeight(.bold)
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(priorityColor(context.state.priority).opacity(0.2))
+                        .padding(.vertical, 3)
+                        .background(
+                            LinearGradient(
+                                colors: [priorityColor(context.state.priority).opacity(0.3), priorityColor(context.state.priority).opacity(0.1)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
                         .foregroundColor(priorityColor(context.state.priority))
                         .cornerRadius(8)
                 }

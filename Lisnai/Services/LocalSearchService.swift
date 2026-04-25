@@ -22,7 +22,7 @@ class LocalSearchService {
     func searchMemories(
         query: String,
         limit: Int = 10,
-        threshold: Float = 0.3,
+        threshold: Float = 0.4,
         context: ModelContext
     ) async -> [LocalSearchResult] {
         print("[LocalSearch] Vector search — query=\"\(query.prefix(50))\", limit=\(limit), threshold=\(threshold)")

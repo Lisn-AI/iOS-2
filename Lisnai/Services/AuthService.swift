@@ -44,8 +44,12 @@ class AuthService: NSObject, ObservableObject {
                 self?.isAuthReady = true
                 if let user = user {
                     print("Auth state changed: signed in as \(user.email ?? "unknown")")
+                    // Link RevenueCat to Firebase UID
+                    await SubscriptionService.shared.loginUser(firebaseUID: user.uid)
+                    await SubscriptionService.shared.syncUsageFromBackend()
                 } else {
                     print("Auth state changed: signed out")
+                    await SubscriptionService.shared.logoutUser()
                 }
             }
         }

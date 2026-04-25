@@ -26,8 +26,12 @@ class ChatService: ObservableObject {
     private let modelContext: ModelContext
     private let dataService = DataService.shared
 
-    init(modelContext: ModelContext) {
+    /// Recording ID for per-recording chat scoping. nil = main/global chat.
+    var recordingId: UUID?
+
+    init(modelContext: ModelContext, recordingId: UUID? = nil) {
         self.modelContext = modelContext
+        self.recordingId = recordingId
     }
 
     // MARK: - Public Methods
@@ -38,11 +42,12 @@ class ChatService: ObservableObject {
     }
 
     /// Send a message with optional recording context and stream the response
-    func sendMessageWithContext(_ content: String, context: String?) async {
+    func sendMessageWithContext(_ content: String, context: String?, chatMode: String = "main") async {
         // Add user message
-        let userMessage = ChatMessage(content: content, isUser: true)
+        let userMessage = ChatMessage(content: content, isUser: true, recordingId: recordingId)
         messages.append(userMessage)
         modelContext.insert(userMessage)
+        try? modelContext.save()  // Persist user message before streaming
 
         isLoading = true
         isStreaming = false
@@ -65,8 +70,8 @@ class ChatService: ObservableObject {
         }
 
         do {
-            // Build conversation history from recent messages (limit to 6)
-            let history = messages.suffix(6).map { message in
+            // Send full history — backend handles compaction (summarizes older messages, keeps recent 6)
+            let history = messages.map { message in
                 ChatHistoryItem(
                     role: message.isUser ? "user" : "assistant",
                     content: message.content
@@ -76,7 +81,7 @@ class ChatService: ObservableObject {
             print("[ChatService] Sending streaming chat request...")
 
             // Create a placeholder assistant message for the streaming response
-            let assistantMessage = ChatMessage(content: "", isUser: false)
+            let assistantMessage = ChatMessage(content: "", isUser: false, recordingId: recordingId)
             messages.append(assistantMessage)
 
             var fullText = ""
@@ -85,6 +90,7 @@ class ChatService: ObservableObject {
                 message: content,
                 history: Array(history),
                 context: context,
+                chatMode: chatMode,
                 modelContext: modelContext,
                 userName: userFirstName
             )
@@ -120,6 +126,14 @@ class ChatService: ObservableObject {
                         existing[idx].resultMessage = result.message
                         existing[idx].actionId = result.actionId
                         existing[idx].pendingPermissionId = result.pendingPermissionId
+
+                        // Merge enriched data from backend into params for ActionEditSheet prefilling
+                        if let enrichedData = result.data {
+                            for (key, value) in enrichedData {
+                                existing[idx].params[key] = AnyCodable(value)
+                            }
+                        }
+
                         if result.status == "permission_required" {
                             existing[idx].status = .permissionRequired
                         } else if result.success {
@@ -158,6 +172,9 @@ class ChatService: ObservableObject {
                     modelContext.insert(assistantMessage)
                     try? modelContext.save()
                     print("[ChatService] Stream complete (\(fullText.count) chars)")
+
+                    // Sync usage counters so local limits stay accurate
+                    await SubscriptionService.shared.syncUsageFromBackend()
 
                 case .error(let errorMsg):
                     self.error = errorMsg
@@ -238,10 +255,22 @@ class ChatService: ObservableObject {
         return nil
     }
 
-    /// Clear chat history (both in-memory and persisted)
+    /// Clear chat history (both in-memory and persisted) — scoped to recordingId
     func clearHistory() {
         do {
-            try modelContext.delete(model: ChatMessage.self)
+            // Fetch only messages matching current scope
+            let rid = recordingId
+            let predicate: Predicate<ChatMessage>
+            if let rid {
+                predicate = #Predicate<ChatMessage> { $0.recordingId == rid }
+            } else {
+                predicate = #Predicate<ChatMessage> { $0.recordingId == nil }
+            }
+            let descriptor = FetchDescriptor<ChatMessage>(predicate: predicate)
+            let toDelete = try modelContext.fetch(descriptor)
+            for msg in toDelete {
+                modelContext.delete(msg)
+            }
             try modelContext.save()
         } catch {
             print("[ChatService] Failed to delete persisted chat history: \(error)")
@@ -253,11 +282,17 @@ class ChatService: ObservableObject {
         self.error = nil
     }
 
-    /// Load chat history from local storage
+    /// Load chat history from local storage — scoped to recordingId
     func loadHistory() {
-        let descriptor = FetchDescriptor<ChatMessage>(
-            sortBy: [SortDescriptor(\.timestamp, order: .forward)]
-        )
+        let rid = recordingId
+        let predicate: Predicate<ChatMessage>
+        if let rid {
+            predicate = #Predicate<ChatMessage> { $0.recordingId == rid }
+        } else {
+            predicate = #Predicate<ChatMessage> { $0.recordingId == nil }
+        }
+        var descriptor = FetchDescriptor<ChatMessage>(predicate: predicate)
+        descriptor.sortBy = [SortDescriptor(\.timestamp, order: .forward)]
 
         do {
             messages = try modelContext.fetch(descriptor)

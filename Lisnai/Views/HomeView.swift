@@ -6,8 +6,11 @@ import MarkdownUI
 struct HomeView: View {
     @EnvironmentObject var recordingManager: RecordingManager
     @EnvironmentObject var locationManager: LocationManager
+    @EnvironmentObject var subscriptionService: SubscriptionService
+    @EnvironmentObject var authService: AuthService
     @Environment(\.modelContext) private var modelContext
     @Binding var showSettings: Bool
+    @State private var showPaywall = false
     @State private var isRecording = false
     @State private var showPermissionAlert = false
     @State private var showMemorySearch = false
@@ -26,6 +29,26 @@ struct HomeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Trial countdown banner
+            if subscriptionService.isTrialActive && subscriptionService.trialDaysRemaining <= 7 {
+                Button(action: { showPaywall = true }) {
+                    HStack(spacing: LisnSpacing.xs) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 13))
+                        Text("\(subscriptionService.trialDaysRemaining) days left in your free trial")
+                            .font(LisnFont.captionBold())
+                        Spacer()
+                        Text("Upgrade")
+                            .font(LisnFont.captionBold())
+                            .underline()
+                    }
+                    .foregroundStyle(LisnColors.accent)
+                    .padding(.horizontal, LisnSpacing.lg)
+                    .padding(.vertical, LisnSpacing.xs)
+                    .background(LisnColors.accent.opacity(0.08))
+                }
+            }
+
             // Top bar
             topBar
                 .padding(.horizontal, LisnSpacing.lg)
@@ -89,6 +112,10 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showTodayBriefing) {
             BriefingsView()
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+                .environmentObject(subscriptionService)
         }
         .onAppear {
             locationManager.requestPermissions()
@@ -475,13 +502,20 @@ struct HomeView: View {
 
     private var greetingText: String {
         let hour = Calendar.current.component(.hour, from: Date())
+        let firstName = authService.user?.displayName?.components(separatedBy: " ").first
+        let name = (firstName?.isEmpty == true) ? nil : firstName
+        let base: String
         if hour < 12 {
-            return "Good morning"
+            base = "Good morning"
         } else if hour < 17 {
-            return "Good afternoon"
+            base = "Good afternoon"
         } else {
-            return "Good evening"
+            base = "Good evening"
         }
+        if let name {
+            return "\(base), \(name)"
+        }
+        return base
     }
 
     private var todayDateString: String {

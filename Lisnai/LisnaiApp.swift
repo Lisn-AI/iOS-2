@@ -14,11 +14,17 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         FirebaseApp.configure()
 
+        // Configure RevenueCat for subscriptions
+        SubscriptionService.shared.configure()
+
         // Set up push notifications with enhanced service
         setupPushNotifications(application)
 
         // Configure global UIKit appearance for theming
         configureAppearance()
+
+        // Register ambient audio detection BGTask
+        AmbientAudioMonitor.shared.registerBGTask()
 
         return true
     }
@@ -195,6 +201,7 @@ extension Notification.Name {
     static let navigateToHome = Notification.Name("navigateToHome")
     static let openChat = Notification.Name("openChat")
     static let chatWithContext = Notification.Name("chatWithContext")
+    static let showPaywall = Notification.Name("showPaywall")
 }
 
 @main
@@ -207,13 +214,20 @@ struct LisnaiApp: App {
     @StateObject private var authService = AuthService()
     @StateObject private var taskActivityManager = TaskActivityManager.shared
     @StateObject private var suggestionMonitor = SuggestionMonitor.shared
+    @StateObject private var subscriptionService = SubscriptionService.shared
 
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showSplash = true
 
     init() {
         // Set modelContext on NotificationService IMMEDIATELY so push data
         // is never dropped. .onAppear is too late — pushes can arrive before it fires.
         NotificationService.shared.modelContext = sharedModelContainer.mainContext
+
+        // Process any payloads queued by the Notification Service Extension
+        // while the app was killed
+        NotificationService.shared.processPendingExtensionPayloads()
     }
 
     /// SwiftData model container for local persistence
@@ -245,14 +259,22 @@ struct LisnaiApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                ContentView()
-                    .preferredColorScheme(.light)
-                    .environmentObject(recordingManager)
-                    .environmentObject(locationManager)
-                    .environmentObject(authService)
-                    .onOpenURL { url in
-                        handleDeepLink(url)
-                    }
+                if !hasCompletedOnboarding && !showSplash {
+                    // First-launch: show onboarding
+                    OnboardingCoordinator()
+                        .preferredColorScheme(.light)
+                        .transition(.opacity)
+                } else {
+                    ContentView()
+                        .preferredColorScheme(.light)
+                        .environmentObject(recordingManager)
+                        .environmentObject(locationManager)
+                        .environmentObject(authService)
+                        .environmentObject(subscriptionService)
+                        .onOpenURL { url in
+                            handleDeepLink(url)
+                        }
+                }
 
                 if showSplash {
                     SplashLogoView()
@@ -269,6 +291,19 @@ struct LisnaiApp: App {
             }
         }
         .modelContainer(sharedModelContainer)
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                // Refresh APNs token to ensure backend always has a valid token
+                UIApplication.shared.registerForRemoteNotifications()
+
+                // Process any NSE-queued payloads that arrived while backgrounded
+                NotificationService.shared.processPendingExtensionPayloads()
+
+                Task {
+                    await subscriptionService.syncUsageFromBackend()
+                }
+            }
+        }
     }
 
     /// Handle deep links from backend actions and Live Activities
@@ -290,14 +325,23 @@ struct LisnaiApp: App {
 
         switch url.host {
         case "action":
-            // Handle action execution
+            // Fetch the action and present edit sheet before executing
             Task {
-                if let result = await ActionExecutor.shared.handleDeepLink(url) {
-                    if result.success {
-                        print("Deep link action executed: \(result.message)")
-                    } else {
-                        print("Deep link action failed: \(result.message)")
+                guard url.pathComponents.count >= 3 else { return }
+                let actionId = url.pathComponents.filter { $0 != "/" }[1]
+                do {
+                    let response = try await APIService.shared.getPendingActions()
+                    if let action = response.actions.first(where: { $0.id == actionId }) {
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: Notification.Name("PresentActionEditSheet"),
+                                object: nil,
+                                userInfo: ["action": action]
+                            )
+                        }
                     }
+                } catch {
+                    print("Deep link action fetch failed: \(error)")
                 }
             }
 
@@ -314,6 +358,10 @@ struct LisnaiApp: App {
         case "tasks":
             // Open the tasks/actions view
             NotificationCenter.default.post(name: .openActions, object: nil)
+
+        case "upgrade":
+            // Open paywall
+            NotificationCenter.default.post(name: .showPaywall, object: nil)
 
         default:
             print("Unknown deep link host: \(url.host ?? "nil")")

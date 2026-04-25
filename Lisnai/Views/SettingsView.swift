@@ -4,7 +4,10 @@ import FirebaseAuth
 /// Settings view for app configuration
 struct SettingsView: View {
     @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var subscriptionService: SubscriptionService
     @StateObject private var notificationService = NotificationService.shared
+    @StateObject private var ambientMonitor = AmbientAudioMonitor.shared
+    @State private var showPaywall = false
     @State private var showBriefings = false
     @State private var showCommitments = false
     @State private var showPermissionRules = false
@@ -27,6 +30,49 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            // Upgrade Card (for non-max users)
+            if !subscriptionService.isMax {
+                Section {
+                    Button(action: { showPaywall = true }) {
+                        HStack(spacing: LisnSpacing.sm) {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 24))
+                                .foregroundStyle(.white)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(subscriptionService.isPro ? "Go Max" : "Upgrade to Pro")
+                                    .font(LisnFont.titleSmall())
+                                    .foregroundStyle(.white)
+
+                                if subscriptionService.isTrialActive {
+                                    Text("\(subscriptionService.trialDaysRemaining) days left in trial")
+                                        .font(LisnFont.caption())
+                                        .foregroundStyle(.white.opacity(0.8))
+                                } else {
+                                    Text("Unlock unlimited features")
+                                        .font(LisnFont.caption())
+                                        .foregroundStyle(.white.opacity(0.8))
+                                }
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                        .padding(.vertical, LisnSpacing.xs)
+                    }
+                    .listRowBackground(
+                        LinearGradient(
+                            colors: [LisnColors.accent, LisnColors.orbDark],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+                    )
+                }
+            }
+
             // Quick Access Section
             Section {
                 Button(action: { showBriefings = true }) {
@@ -65,22 +111,40 @@ struct SettingsView: View {
 
             // Cloud Backup Section
             Section {
-                Toggle(isOn: Binding(
-                    get: { cloudBackupEnabled },
-                    set: { newValue in
-                        pendingCloudToggle = newValue
-                        if newValue {
-                            showCloudEnableConfirmation = true
-                        } else {
-                            showCloudDisableConfirmation = true
+                if subscriptionService.hasCloudBackup {
+                    Toggle(isOn: Binding(
+                        get: { cloudBackupEnabled },
+                        set: { newValue in
+                            pendingCloudToggle = newValue
+                            if newValue {
+                                showCloudEnableConfirmation = true
+                            } else {
+                                showCloudDisableConfirmation = true
+                            }
+                        }
+                    )) {
+                        Label("Cloud Backup", systemImage: "icloud")
+                    }
+                    .listRowBackground(LisnColors.bgElevated)
+                } else {
+                    Button(action: { showPaywall = true }) {
+                        HStack {
+                            Label("Cloud Backup", systemImage: "icloud")
+                                .foregroundStyle(LisnColors.textTertiary)
+                            Spacer()
+                            Text("Pro")
+                                .font(LisnFont.captionBold())
+                                .foregroundStyle(LisnColors.accent)
+                                .padding(.horizontal, LisnSpacing.xs)
+                                .padding(.vertical, 2)
+                                .background(LisnColors.accent.opacity(0.12))
+                                .clipShape(Capsule())
                         }
                     }
-                )) {
-                    Label("Cloud Backup", systemImage: "icloud")
+                    .listRowBackground(LisnColors.bgElevated)
                 }
-                .listRowBackground(LisnColors.bgElevated)
 
-                if !cloudBackupEnabled {
+                if !cloudBackupEnabled && subscriptionService.hasCloudBackup {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(LisnColors.warning)
@@ -122,6 +186,16 @@ struct SettingsView: View {
 
                     Toggle(isOn: $commitmentRemindersEnabled) {
                         Label("Commitment Reminders", systemImage: "checkmark.seal")
+                    }
+                    .listRowBackground(LisnColors.bgElevated)
+
+                    Toggle(isOn: $ambientMonitor.isEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label("Ambient Detection", systemImage: "waveform")
+                            Text("Get notified when conversation is detected nearby")
+                                .font(LisnFont.caption())
+                                .foregroundColor(LisnColors.textSecondary)
+                        }
                     }
                     .listRowBackground(LisnColors.bgElevated)
                 }
@@ -210,6 +284,45 @@ struct SettingsView: View {
                     }
                     .listRowBackground(LisnColors.bgElevated)
 
+                    // Subscription Status
+                    if subscriptionService.isPro {
+                        HStack {
+                            Label("Subscription", systemImage: "creditcard")
+                            Spacer()
+                            Text(subscriptionService.tier.displayName)
+                                .font(LisnFont.captionBold())
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, LisnSpacing.xs)
+                                .padding(.vertical, 3)
+                                .background(
+                                    LinearGradient(
+                                        colors: [LisnColors.accent, LisnColors.orbDark],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .clipShape(Capsule())
+                        }
+                        .listRowBackground(LisnColors.bgElevated)
+                    }
+
+                    // TODO: Uncomment when Apple IAP is ready
+                    // if subscriptionService.isPro {
+                    //     Link(destination: URL(string: "https://apps.apple.com/account/subscriptions")!) {
+                    //         HStack {
+                    //             Label("Manage Subscription", systemImage: "creditcard")
+                    //             Spacer()
+                    //             Text(subscriptionService.tier.displayName)
+                    //                 .font(LisnFont.captionBold())
+                    //                 .foregroundStyle(LisnColors.accent)
+                    //             Image(systemName: "chevron.right")
+                    //                 .font(.caption)
+                    //                 .foregroundStyle(LisnColors.textTertiary)
+                    //         }
+                    //     }
+                    //     .listRowBackground(LisnColors.bgElevated)
+                    // }
+
                     Button {
                         do {
                             try authService.signOut()
@@ -293,6 +406,10 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showPermissionRules) {
             PermissionRulesView()
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+                .environmentObject(subscriptionService)
         }
         .confirmationDialog(
             "Delete All Data?",

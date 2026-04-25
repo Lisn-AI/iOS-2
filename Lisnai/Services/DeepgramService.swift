@@ -91,7 +91,7 @@ class DeepgramService {
             URLQueryItem(name: "utterances", value: "true"),        // Group by speaker utterances
             URLQueryItem(name: "punctuate", value: "true"),         // Add punctuation
             URLQueryItem(name: "smart_format", value: "true"),      // Better formatting
-            URLQueryItem(name: "detect_language", value: "true")    // Auto-detect language
+            URLQueryItem(name: "language", value: "multi")           // Multilingual code-switching (EN/HI/ES/FR/DE/RU/PT/JA/IT/NL)
         ]
 
         guard let url = components.url else {

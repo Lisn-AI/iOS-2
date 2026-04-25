@@ -103,6 +103,12 @@ class APIService: ObservableObject {
                 throw APIError.forbidden
             case 404:
                 throw APIError.notFound
+            case 429:
+                // Usage limit exceeded
+                if let limitResponse = try? decoder.decode(LimitExceededResponse.self, from: data) {
+                    throw APIError.limitExceeded(resource: limitResponse.resource, used: limitResponse.used, limit: limitResponse.limit)
+                }
+                throw APIError.httpError(429, "Rate limit exceeded")
             case 500...599:
                 let errorBody = String(data: data, encoding: .utf8) ?? "Server error"
                 print("[APIService] Server error: \(errorBody)")
@@ -171,8 +177,8 @@ class APIService: ObservableObject {
     // MARK: - Chat
 
     /// Send a message to the RAG-enhanced chat
-    func chat(message: String, history: [ChatHistoryItem] = [], context: String? = nil) async throws -> ChatResponse {
-        let body = ChatRequest(message: message, history: history, context: context)
+    func chat(message: String, history: [ChatHistoryItem] = [], context: String? = nil, userName: String? = nil) async throws -> ChatResponse {
+        let body = ChatRequest(message: message, history: history, context: context, userName: userName)
 
         let request = try await createRequest(
             endpoint: "/api/chat",
@@ -183,10 +189,23 @@ class APIService: ObservableObject {
         return try await execute(request)
     }
 
+    /// Payload from a tool_result SSE event
+    struct ToolResultPayload: @unchecked Sendable {
+        let success: Bool
+        let status: String       // "completed", "permission_required", "failed", "error"
+        let message: String
+        let actionId: String?
+        let pendingPermissionId: String?
+        let data: [String: Any]? // Enriched params from backend for ActionEditSheet prefilling
+    }
+
     /// SSE event types from the streaming chat endpoint
     enum ChatStreamEvent: Sendable {
         case sources([String])
         case delta(String)
+        case toolCall(id: String, skill: String, tool: String, params: [String: Any])
+        case toolResult(id: String, skill: String, tool: String, result: ToolResultPayload)
+        case stepFinish(finishReason: String)
         case done
         case error(String)
     }
@@ -195,9 +214,10 @@ class APIService: ObservableObject {
     func chatStream(
         message: String,
         history: [ChatHistoryItem] = [],
-        context: String? = nil
+        context: String? = nil,
+        userName: String? = nil
     ) async throws -> AsyncStream<ChatStreamEvent> {
-        let body = ChatRequest(message: message, history: history, context: context)
+        let body = ChatRequest(message: message, history: history, context: context, userName: userName)
         var request = try await createRequest(
             endpoint: "/api/chat/stream",
             method: "POST",
@@ -235,6 +255,29 @@ class APIService: ObservableObject {
                             if let text = event["text"] as? String {
                                 continuation.yield(.delta(text))
                             }
+                        case "tool_call":
+                            let id = event["id"] as? String ?? UUID().uuidString
+                            let skill = event["skill"] as? String ?? ""
+                            let toolName = event["tool"] as? String ?? ""
+                            let params = event["params"] as? [String: Any] ?? [:]
+                            continuation.yield(.toolCall(id: id, skill: skill, tool: toolName, params: params))
+                        case "tool_result":
+                            let id = event["id"] as? String ?? UUID().uuidString
+                            let skill = event["skill"] as? String ?? ""
+                            let toolName = event["tool"] as? String ?? ""
+                            let resultDict = event["result"] as? [String: Any] ?? [:]
+                            let payload = ToolResultPayload(
+                                success: resultDict["success"] as? Bool ?? false,
+                                status: resultDict["status"] as? String ?? "error",
+                                message: resultDict["message"] as? String ?? "",
+                                actionId: resultDict["actionId"] as? String,
+                                pendingPermissionId: resultDict["pendingPermissionId"] as? String,
+                                data: resultDict["data"] as? [String: Any]
+                            )
+                            continuation.yield(.toolResult(id: id, skill: skill, tool: toolName, result: payload))
+                        case "step_finish":
+                            let reason = event["finishReason"] as? String ?? ""
+                            continuation.yield(.stepFinish(finishReason: reason))
                         case "done":
                             continuation.yield(.done)
                         case "error":
@@ -470,11 +513,17 @@ class APIService: ObservableObject {
         return try await execute(request)
     }
 
-    /// Trigger manual briefing generation
-    func triggerBriefing() async throws -> EmptyResponse {
+    /// Trigger manual briefing generation for a specific date
+    func triggerBriefing(date: Date? = nil) async throws -> BriefingResponse {
+        var bodyData: Data? = nil
+        if let date = date {
+            let dateString = ISO8601DateFormatter().string(from: date).prefix(10).description
+            bodyData = try? JSONEncoder().encode(["date": dateString])
+        }
         let request = try await createRequest(
             endpoint: "/api/briefings/trigger",
-            method: "POST"
+            method: "POST",
+            body: bodyData
         )
         return try await execute(request)
     }
@@ -541,6 +590,25 @@ class APIService: ObservableObject {
         return try await execute(request)
     }
 
+    // MARK: - Subscription
+
+    /// Get subscription status and usage from backend
+    func getSubscriptionStatus() async throws -> SubscriptionStatusResponse {
+        let request = try await createRequest(endpoint: "/api/subscription")
+        return try await execute(request)
+    }
+
+    /// Create a Razorpay subscription and get the hosted checkout URL
+    func createSubscription(planId: String) async throws -> CreateSubscriptionResponse {
+        let body = CreateSubscriptionRequest(planId: planId)
+        let request = try await createRequest(
+            endpoint: "/payments/create-subscription",
+            method: "POST",
+            body: try encoder.encode(body)
+        )
+        return try await execute(request)
+    }
+
     // MARK: - Embedding Proxy
 
     /// Generate an embedding vector for local search
@@ -562,12 +630,16 @@ class APIService: ObservableObject {
         message: String,
         history: [ChatHistoryItem] = [],
         context: String? = nil,
-        localMemories: [LocalMemoryPayload] = []
+        chatMode: String = "main",
+        localMemories: [LocalMemoryPayload] = [],
+        userName: String? = nil
     ) async throws -> ChatResponse {
         let body = ChatRequestWithLocal(
             message: message,
             history: history,
             context: context,
+            chatMode: chatMode,
+            userName: userName,
             localMemories: localMemories.isEmpty ? nil : localMemories
         )
 
@@ -585,12 +657,16 @@ class APIService: ObservableObject {
         message: String,
         history: [ChatHistoryItem] = [],
         context: String? = nil,
-        localMemories: [LocalMemoryPayload] = []
+        chatMode: String = "main",
+        localMemories: [LocalMemoryPayload] = [],
+        userName: String? = nil
     ) async throws -> AsyncStream<ChatStreamEvent> {
         let body = ChatRequestWithLocal(
             message: message,
             history: history,
             context: context,
+            chatMode: chatMode,
+            userName: userName,
             localMemories: localMemories.isEmpty ? nil : localMemories
         )
 
@@ -631,6 +707,29 @@ class APIService: ObservableObject {
                             if let text = event["text"] as? String {
                                 continuation.yield(.delta(text))
                             }
+                        case "tool_call":
+                            let id = event["id"] as? String ?? UUID().uuidString
+                            let skill = event["skill"] as? String ?? ""
+                            let toolName = event["tool"] as? String ?? ""
+                            let params = event["params"] as? [String: Any] ?? [:]
+                            continuation.yield(.toolCall(id: id, skill: skill, tool: toolName, params: params))
+                        case "tool_result":
+                            let id = event["id"] as? String ?? UUID().uuidString
+                            let skill = event["skill"] as? String ?? ""
+                            let toolName = event["tool"] as? String ?? ""
+                            let resultDict = event["result"] as? [String: Any] ?? [:]
+                            let payload = ToolResultPayload(
+                                success: resultDict["success"] as? Bool ?? false,
+                                status: resultDict["status"] as? String ?? "error",
+                                message: resultDict["message"] as? String ?? "",
+                                actionId: resultDict["actionId"] as? String,
+                                pendingPermissionId: resultDict["pendingPermissionId"] as? String,
+                                data: resultDict["data"] as? [String: Any]
+                            )
+                            continuation.yield(.toolResult(id: id, skill: skill, tool: toolName, result: payload))
+                        case "step_finish":
+                            let reason = event["finishReason"] as? String ?? ""
+                            continuation.yield(.stepFinish(finishReason: reason))
                         case "done":
                             continuation.yield(.done)
                         case "error":
@@ -760,12 +859,15 @@ struct ChatRequest: Codable {
     let message: String
     let history: [ChatHistoryItem]
     let context: String?
+    let userName: String?
 }
 
 struct ChatRequestWithLocal: Codable {
     let message: String
     let history: [ChatHistoryItem]
     let context: String?
+    let chatMode: String?      // "main" or "conversation"
+    let userName: String?
     let localMemories: [LocalMemoryPayload]?
 }
 
@@ -775,6 +877,7 @@ struct LocalMemoryPayload: Codable {
     let timestamp: String
     let topics: [String]?
     let people: [String]?
+    let score: Float?
 }
 
 struct EmbedRequest: Codable {
@@ -1118,6 +1221,7 @@ enum APIError: LocalizedError {
     case invalidResponse
     case forbidden
     case notFound
+    case limitExceeded(resource: String, used: Int, limit: Int)
     case serverError(Int, String)
     case httpError(Int, String)
     case decodingError(String)
@@ -1137,6 +1241,8 @@ enum APIError: LocalizedError {
             return "You don't have permission to perform this action"
         case .notFound:
             return "Resource not found"
+        case .limitExceeded(let resource, let used, let limit):
+            return "You've used \(used)/\(limit) \(resource). Upgrade to continue."
         case .serverError(let code, let message):
             return "Server error (\(code)): \(message)"
         case .httpError(let code, let message):

@@ -4,9 +4,15 @@ import SwiftData
 /// View for searching through memories with natural language queries
 struct MemorySearchView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject var subscriptionService: SubscriptionService
     @StateObject private var viewModel = MemorySearchViewModel()
     @State private var searchText = ""
     @State private var isSearching = false
+    @State private var selectedRecording: Recording?
+    @State private var selectedTranscript: String?
+    @State private var searchTask: Task<Void, Never>?
+    @State private var showPaywall = false
+    @State private var showLimitCard = false
     @FocusState private var isSearchFieldFocused: Bool
 
     var body: some View {
@@ -30,10 +36,50 @@ struct MemorySearchView: View {
             .navigationTitle("Search Memories")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .navigationDestination(item: $selectedRecording) { recording in
+                RecordingDetailView(recording: recording)
+            }
+            .sheet(item: Binding(
+                get: {
+                    if let text = selectedTranscript {
+                        return TranscriptDetail(text: text)
+                    }
+                    return nil
+                },
+                set: { _ in selectedTranscript = nil }
+            )) { detail in
+                NavigationStack {
+                    ScrollView {
+                        Text(detail.text)
+                            .font(LisnFont.bodyMedium())
+                            .padding()
+                    }
+                    .navigationTitle("Memory")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { selectedTranscript = nil }
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
+            }
             .alert("Error", isPresented: $viewModel.showError) {
                 Button("OK") { }
             } message: {
                 Text(viewModel.errorMessage)
+            }
+            .onChange(of: searchText) { _, newValue in
+                searchTask?.cancel()
+                guard !newValue.trimmingCharacters(in: .whitespaces).isEmpty else {
+                    viewModel.results = []
+                    return
+                }
+                searchTask = Task {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard !Task.isCancelled else { return }
+                    await performSearchAsync()
+                }
             }
         }
     }
@@ -53,7 +99,8 @@ struct MemorySearchView: View {
                     .focused($isSearchFieldFocused)
                     .submitLabel(.search)
                     .onSubmit {
-                        performSearch()
+                        searchTask?.cancel()
+                        Task { await performSearchAsync() }
                     }
 
                 if !searchText.isEmpty {
@@ -121,7 +168,8 @@ struct MemorySearchView: View {
                     ForEach(searchSuggestions, id: \.self) { suggestion in
                         Button(action: {
                             searchText = suggestion
-                            performSearch()
+                            searchTask?.cancel()
+                            Task { await performSearchAsync() }
                         }) {
                             HStack {
                                 Image(systemName: "magnifyingglass")
@@ -186,77 +234,126 @@ struct MemorySearchView: View {
     // MARK: - Results List
 
     private var resultsList: some View {
-        List {
-            Section {
+        ScrollView {
+            LazyVStack(spacing: 0) {
                 Text("\(viewModel.results.count) memories found")
                     .font(LisnFont.bodySmall())
                     .foregroundColor(LisnColors.textSecondary)
-                    .listRowBackground(LisnColors.bgElevated)
-            }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.vertical, LisnSpacing.sm)
 
-            ForEach(viewModel.results) { result in
-                SearchResultRow(result: result)
-                    .listRowBackground(LisnColors.bgElevated)
+                ForEach(viewModel.results) { result in
+                    let recording = viewModel.findRecording(for: result, context: modelContext)
+
+                    Button {
+                        if let recording {
+                            selectedRecording = recording
+                        } else {
+                            selectedTranscript = result.transcriptSnippet
+                        }
+                    } label: {
+                        SearchResultRow(result: result, recordingTitle: recording?.title)
+                    }
+                    .buttonStyle(.plain)
+
+                    if result.id != viewModel.results.last?.id {
+                        Divider()
+                            .padding(.horizontal)
+                    }
+                }
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(LisnColors.bgPrimary)
     }
 
     // MARK: - Actions
 
-    private func performSearch() {
+    private func performSearchAsync() async {
         guard !searchText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+
+        // Paywall disabled — will enforce via Apple IAP later
+        // let limitCheck = subscriptionService.canSearch()
+        // if !limitCheck.isAllowed {
+        //     showLimitCard = true
+        //     return
+        // }
+
         isSearching = true
-        Task {
-            await viewModel.search(query: searchText, modelContext: modelContext)
-            isSearching = false
-        }
+        await viewModel.search(query: searchText, modelContext: modelContext)
+        isSearching = false
+
+        // Sync usage counters after consuming search quota
+        await subscriptionService.syncUsageFromBackend()
     }
+}
+
+// MARK: - Transcript Detail (for sheet)
+
+private struct TranscriptDetail: Identifiable {
+    let id = UUID()
+    let text: String
 }
 
 // MARK: - Search Result Row
 
 struct SearchResultRow: View {
     let result: SearchResult
+    var recordingTitle: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LisnSpacing.xs) {
-            // Snippet
-            Text(result.transcriptSnippet)
-                .font(LisnFont.bodyMedium())
-                .lineLimit(3)
+        HStack(spacing: LisnSpacing.sm) {
+            VStack(alignment: .leading, spacing: LisnSpacing.xs) {
+                // Title
+                Text(recordingTitle ?? "Memory")
+                    .font(LisnFont.titleSmall())
+                    .foregroundColor(LisnColors.textPrimary)
+                    .lineLimit(1)
 
-            HStack {
-                // Relevance indicator
-                HStack(spacing: 4) {
-                    Image(systemName: "sparkles")
-                        .font(LisnFont.caption())
-                    Text("\(Int(result.relevanceScore * 100))% match")
-                        .font(LisnFont.caption())
+                // Snippet
+                Text(result.transcriptSnippet)
+                    .font(LisnFont.bodySmall())
+                    .foregroundColor(LisnColors.textSecondary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+
+                HStack {
+                    // Relevance indicator
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkles")
+                            .font(LisnFont.caption())
+                        Text("\(Int(result.relevanceScore * 100))% match")
+                            .font(LisnFont.caption())
+                    }
+                    .foregroundColor(relevanceColor)
+
+                    Spacer()
+
+                    // Timestamp
+                    if let timestamp = result.timestamp {
+                        Text(formattedDate(timestamp))
+                            .font(LisnFont.caption())
+                            .foregroundColor(LisnColors.textSecondary)
+                    }
                 }
-                .foregroundColor(relevanceColor)
 
-                Spacer()
-
-                // Timestamp
-                if let timestamp = result.timestamp {
-                    Text(formattedDate(timestamp))
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.textSecondary)
-                }
-            }
-
-            // Topics
-            if let topics = result.topics, !topics.isEmpty {
-                FlowLayout(spacing: 4) {
-                    ForEach(topics.prefix(3), id: \.self) { topic in
-                        LisnChip(text: topic, color: LisnColors.accent)
+                // Topics
+                if let topics = result.topics, !topics.isEmpty {
+                    FlowLayout(spacing: 4) {
+                        ForEach(topics.prefix(3), id: \.self) { topic in
+                            LisnChip(text: topic, color: LisnColors.accent)
+                        }
                     }
                 }
             }
+
+            Image(systemName: "chevron.right")
+                .font(LisnFont.caption())
+                .foregroundColor(LisnColors.textTertiary)
         }
+        .padding()
+        .background(LisnColors.bgElevated)
+        .cornerRadius(LisnRadius.sm)
+        .padding(.horizontal)
         .padding(.vertical, 4)
     }
 
@@ -318,6 +415,34 @@ class MemorySearchViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    func findRecording(for result: SearchResult, context: ModelContext) -> Recording? {
+        guard let ts = result.timestamp,
+              let date = ISO8601DateFormatter().date(from: ts) else { return nil }
+
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: date)
+        guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return nil }
+
+        let descriptor = FetchDescriptor<Recording>(
+            predicate: #Predicate { $0.date >= dayStart && $0.date < dayEnd },
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        guard let recordings = try? context.fetch(descriptor) else { return nil }
+
+        // Try transcript match first
+        let snippet = String(result.transcriptSnippet.prefix(100))
+        if let match = recordings.first(where: {
+            $0.transcription?.text.contains(snippet) == true
+        }) {
+            return match
+        }
+
+        // Fallback: closest by time
+        return recordings.min(by: {
+            abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date))
+        })
     }
 }
 

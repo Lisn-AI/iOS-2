@@ -32,7 +32,7 @@ struct HistoryView: View {
                     .padding(.horizontal)
                     .padding(.top, LisnSpacing.sm)
                     .padding(.bottom, LisnSpacing.xs)
-                    .background(.regularMaterial)
+                    .background(LisnColors.bgPrimary)
             }
             .toolbar(.hidden, for: .navigationBar)
             .contentMargins(.bottom, 68, for: .scrollContent)
@@ -172,35 +172,37 @@ struct RecordingDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Tab picker
-            Picker("View", selection: $selectedTab) {
-                Text("Summary").tag(0)
-                if recording.insight != nil {
-                    Text("Insight").tag(2)
-                }
-                Text("Transcription").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .padding()
-
-            // Content
-            ScrollView {
-                VStack(alignment: .leading, spacing: LisnSpacing.md) {
-                    // Metadata
-                    HStack {
-                        Label(recording.formattedDate, systemImage: "calendar")
-                        Spacer()
-                        if recording.duration > 0 {
-                            Label(recording.formattedDuration, systemImage: "clock")
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // Tab picker
+                Picker("View", selection: $selectedTab) {
+                    Text("Summary").tag(0)
+                    if recording.insight != nil {
+                        Text("Insight").tag(2)
                     }
-                    .font(LisnFont.bodyMedium())
-                    .foregroundColor(LisnColors.textSecondary)
+                    Text("Transcription").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding()
 
-                    Divider()
+                // Metadata
+                HStack {
+                    Label(recording.formattedDate, systemImage: "calendar")
+                    Spacer()
+                    if recording.duration > 0 {
+                        Label(recording.formattedDuration, systemImage: "clock")
+                    }
+                }
+                .font(LisnFont.bodyMedium())
+                .foregroundColor(LisnColors.textSecondary)
+                .padding(.horizontal)
 
-                    // Content based on tab
+                Divider()
+                    .padding(.horizontal)
+                    .padding(.vertical, LisnSpacing.sm)
+
+                // Content based on tab
+                Group {
                     if selectedTab == 0 {
                         summaryContent
                     } else if selectedTab == 2 {
@@ -209,39 +211,15 @@ struct RecordingDetailView: View {
                         transcriptionContent
                     }
                 }
-                .padding()
-                .padding(.bottom, 80) // Space for floating button
+                .padding(.horizontal)
+                .padding(.bottom, LisnSpacing.md)
             }
         }
+        .contentMargins(.bottom, recording.summary != nil ? 140 : 76, for: .scrollContent)
         .overlay(alignment: .bottom) {
             if recording.summary != nil {
-                Button {
-                    let title = recording.title ?? "Recording"
-                    let summary = recording.summary?.text ?? ""
-                    dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        NotificationCenter.default.post(
-                            name: .openChat,
-                            object: nil,
-                            userInfo: ["title": title, "summary": summary]
-                        )
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("Ask")
-                            .font(LisnFont.bodyMedium())
-                            .fontWeight(.semibold)
-                    }
-                    .foregroundColor(LisnColors.accent)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(LisnColors.bgElevated)
-                    .clipShape(Capsule())
-                    .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
-                }
-                .padding(.bottom, 88)
+                ConversationChatBar(recording: recording)
+                    .padding(.bottom, 76) // Clear the floating pill tab bar + calendar button
             }
         }
         .navigationTitle(recording.title ?? "Recording")
@@ -287,3 +265,54 @@ struct RecordingDetailView: View {
         }
     }
 }
+
+// MARK: - Conversation Chat Bar
+
+struct ConversationChatBar: View {
+    let recording: Recording
+    @State private var showChat = false
+
+    var body: some View {
+        Button { showChat = true } label: {
+            HStack(spacing: 12) {
+                Text("Ask about this conversation...")
+                    .font(.system(size: 16))
+                    .foregroundColor(LisnColors.textTertiary.opacity(0.5))
+
+                Spacer()
+
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundColor(LisnColors.textTertiary.opacity(0.3))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .modifier(ConversationChatBarGlassModifier())
+        }
+        .padding(.horizontal, LisnSpacing.md)
+        .padding(.vertical, 10)
+        .sheet(isPresented: $showChat) {
+            ConversationChatView(recording: recording)
+        }
+    }
+}
+
+private struct ConversationChatBarGlassModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
+        } else {
+            content
+                .background(Color.white.opacity(0.4))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+                .background(.ultraThinMaterial)
+        }
+    }
+}
+

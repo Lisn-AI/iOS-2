@@ -636,6 +636,14 @@ class RecordingManager: NSObject, ObservableObject {
     }
 
     func startRecording() {
+        // Usage check is informational — don't block recording
+        // Paywall disabled — will enforce via Apple IAP later
+        // let limitCheck = SubscriptionService.shared.canTranscribe()
+        // if !limitCheck.isAllowed {
+        //     NotificationCenter.default.post(name: .showPaywall, object: nil)
+        //     return
+        // }
+
         // Setup audio session before first recording
         do {
             try setupAudioSessionIfNeeded()
@@ -651,6 +659,9 @@ class RecordingManager: NSObject, ObservableObject {
         isSuspendedForInterruption = false
         recordingSegments = []
         currentSegmentIndex = 0
+
+        // Flag for ambient audio monitor
+        UserDefaults.standard.set(true, forKey: "isCurrentlyRecording")
 
         // Capture the recording start date
         recordingDate = Date()
@@ -762,6 +773,7 @@ class RecordingManager: NSObject, ObservableObject {
         }
 
         isRecording = false
+        UserDefaults.standard.set(false, forKey: "isCurrentlyRecording")
         SuggestionMonitor.shared.isRecordingActive = false
         isPausedForCall = false
         isPausedManually = false
@@ -1007,7 +1019,10 @@ class RecordingManager: NSObject, ObservableObject {
                 }
             }
 
-            // Step 6: Delete the audio file (we don't need it anymore)
+            // Step 6: Sync usage counters after consuming transcription quota
+            await SubscriptionService.shared.syncUsageFromBackend()
+
+            // Step 7: Delete the audio file (we don't need it anymore)
             deleteAudioFile(at: fileURL)
 
         } catch {
@@ -1218,6 +1233,9 @@ class RecordingManager: NSObject, ObservableObject {
             }
         }
 
+        // Sync usage counters after consuming transcription quota
+        await SubscriptionService.shared.syncUsageFromBackend()
+
         // Clean up all segment files
         for segmentURL in recordingSegments {
             try? FileManager.default.removeItem(at: segmentURL)
@@ -1351,7 +1369,8 @@ class RecordingManager: NSObject, ObservableObject {
                 rawTranscript: result.memory.rawTranscript,
                 timestamp: ISO8601DateFormatter().string(from: result.memory.timestamp),
                 topics: result.memory.topics.isEmpty ? nil : result.memory.topics,
-                people: result.memory.people.isEmpty ? nil : result.memory.people
+                people: result.memory.people.isEmpty ? nil : result.memory.people,
+                score: Float(result.memory.importanceScore)
             )
         }
     }
@@ -1454,16 +1473,32 @@ class RecordingManager: NSObject, ObservableObject {
                 await requestPermissionNotification(permissionId: permissionId, message: message)
             }
         } else if actionResult.executed, let toolResult = actionResult.toolResult {
-            print("[RecordingManager] Action executed - \(toolResult.message)")
+            print("[RecordingManager] Action ready - \(toolResult.message)")
 
-            // Auto-execute the action on-device via deep link
+            // Present the action edit sheet instead of auto-executing
             if let deepLink = toolResult.iosDeepLink,
-               let url = URL(string: deepLink) {
-                let result = await ActionExecutor.shared.handleDeepLink(url)
-                if let result = result {
-                    print("[RecordingManager] Auto-executed action: success=\(result.success), \(result.message)")
-                } else {
-                    print("[RecordingManager] Deep link returned nil result for: \(deepLink)")
+               let url = URL(string: deepLink),
+               url.scheme == "lisnai",
+               url.host == "action",
+               url.pathComponents.count >= 3 {
+                let actionId = url.pathComponents[2]
+                // Fetch action details and present for editing
+                do {
+                    let response = try await APIService.shared.getPendingActions()
+                    if let action = response.actions.first(where: { $0.id == actionId }) {
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: Notification.Name("PresentActionEditSheet"),
+                                object: nil,
+                                userInfo: ["action": action]
+                            )
+                        }
+                        print("[RecordingManager] Presented action edit sheet for: \(actionId)")
+                    } else {
+                        print("[RecordingManager] Action not found for deep link: \(actionId)")
+                    }
+                } catch {
+                    print("[RecordingManager] Failed to fetch action for edit: \(error)")
                 }
             }
         } else if let error = actionResult.error {

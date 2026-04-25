@@ -359,12 +359,12 @@ struct ChatView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        // Check chat usage limit
-        let limitCheck = subscriptionService.canChat()
-        if !limitCheck.isAllowed {
-            showLimitCard = true
-            return
-        }
+        // Paywall disabled — will enforce via Apple IAP later
+        // let limitCheck = subscriptionService.canChat()
+        // if !limitCheck.isAllowed {
+        //     showLimitCard = true
+        //     return
+        // }
 
         LisnHaptics.light()
         isInputFocused = false

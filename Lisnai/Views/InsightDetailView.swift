@@ -81,9 +81,9 @@ struct InsightDetailView: View {
                         Text(correlation.memoryDate)
                             .font(LisnFont.captionBold())
                             .foregroundColor(LisnColors.textSecondary)
-                        Text(correlation.connection)
-                            .font(LisnFont.bodyMedium())
-                            .foregroundColor(LisnColors.textPrimary)
+                        Markdown(correlation.connection)
+                            .markdownTheme(.lisnAI)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -104,13 +104,9 @@ struct InsightDetailView: View {
             }
 
             ForEach(insight.actionableIdeas, id: \.self) { idea in
-                HStack(alignment: .top, spacing: LisnSpacing.xs) {
-                    Text("\u{2022}")
-                        .foregroundColor(LisnColors.textTertiary)
-                    Text(idea)
-                        .font(LisnFont.bodyMedium())
-                        .foregroundColor(LisnColors.textPrimary)
-                }
+                Markdown(idea)
+                    .markdownTheme(.lisnAI)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

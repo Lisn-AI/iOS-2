@@ -68,11 +68,12 @@ class DataService: ObservableObject {
                     rawTranscript: result.memory.rawTranscript,
                     timestamp: ISO8601DateFormatter().string(from: result.memory.timestamp),
                     topics: result.memory.topics,
-                    people: result.memory.people
+                    people: result.memory.people,
+                    score: result.score
                 )
             }
 
-            print("[DataService] chat — sending \(localPayloads.count) local memories as context")
+            print("[DataService] chat — sending \(localPayloads.count) local memories as context (best=\(localPayloads.first?.score ?? 0))")
             return try await APIService.shared.chatWithLocalMemories(
                 message: message,
                 history: history,
@@ -90,7 +91,9 @@ class DataService: ObservableObject {
         message: String,
         history: [ChatHistoryItem] = [],
         context: String? = nil,
-        modelContext: ModelContext? = nil
+        chatMode: String = "main",
+        modelContext: ModelContext? = nil,
+        userName: String? = nil
     ) async throws -> AsyncStream<APIService.ChatStreamEvent> {
         // Always search local memories to send as context
         if let ctx = modelContext {
@@ -107,21 +110,24 @@ class DataService: ObservableObject {
                     rawTranscript: result.memory.rawTranscript,
                     timestamp: ISO8601DateFormatter().string(from: result.memory.timestamp),
                     topics: result.memory.topics,
-                    people: result.memory.people
+                    people: result.memory.people,
+                    score: result.score
                 )
             }
 
-            print("[DataService] chatStream — sending \(localPayloads.count) local memories as context")
+            print("[DataService] chatStream — sending \(localPayloads.count) local memories as context (best=\(localPayloads.first?.score ?? 0))")
             return try await APIService.shared.chatStreamWithLocalMemories(
                 message: message,
                 history: history,
                 context: context,
-                localMemories: localPayloads
+                chatMode: chatMode,
+                localMemories: localPayloads,
+                userName: userName
             )
         }
 
         print("[DataService] chatStream — no modelContext, calling API without local memories")
-        return try await APIService.shared.chatStream(message: message, history: history, context: context)
+        return try await APIService.shared.chatStream(message: message, history: history, context: context, userName: userName)
     }
 
     // MARK: - Commitments

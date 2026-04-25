@@ -29,7 +29,7 @@ struct BriefingsView: View {
             .navigationTitle("Daily Briefing")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { Task { await viewModel.triggerBriefing() } }) {
+                    Button(action: { Task { await viewModel.triggerBriefing(for: selectedDate, modelContext: modelContext) } }) {
                         Image(systemName: "arrow.clockwise")
                     }
                     .disabled(viewModel.isLoading)
@@ -136,7 +136,7 @@ struct BriefingsView: View {
             title: "No Briefing Available",
             subtitle: "Start recording conversations to generate daily briefings",
             actionTitle: "Generate Briefing",
-            action: { Task { await viewModel.triggerBriefing() } }
+            action: { Task { await viewModel.triggerBriefing(for: selectedDate, modelContext: modelContext) } }
         )
     }
 
@@ -376,15 +376,18 @@ class BriefingsViewModel: ObservableObject {
         isLoading = false
     }
 
-    func triggerBriefing() async {
+    func triggerBriefing(for date: Date, modelContext: ModelContext? = nil) async {
         isLoading = true
 
         do {
-            _ = try await APIService.shared.triggerBriefing()
-            // Reload the briefing after triggering
-            await loadBriefing(for: Date())
+            let response = try await APIService.shared.triggerBriefing(date: date)
+            briefing = response
         } catch {
-            errorMessage = error.localizedDescription
+            if case APIError.notFound = error {
+                errorMessage = "No conversations found for this date"
+            } else {
+                errorMessage = error.localizedDescription
+            }
             showError = true
         }
 

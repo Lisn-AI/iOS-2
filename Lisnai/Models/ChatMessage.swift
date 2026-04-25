@@ -12,9 +12,16 @@ final class ChatMessage {
     /// Tool calls made by the assistant (stored as JSON)
     var toolCallsJSON: String?
 
-    init(content: String, isUser: Bool) {
+    /// JSON-encoded [String] of source memory IDs used in this response
+    var sourcesJSON: String?
+
+    /// Recording ID for per-recording chat threads. nil = main/global chat.
+    var recordingId: UUID?
+
+    init(content: String, isUser: Bool, recordingId: UUID? = nil) {
         self.content = content
         self.isUser = isUser
+        self.recordingId = recordingId
     }
 }
 
@@ -24,6 +31,16 @@ extension ChatMessage {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: timestamp)
+    }
+
+    var sourceIds: [String] {
+        guard let json = sourcesJSON, let data = json.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+
+    var decodedToolCalls: [InlineToolCall]? {
+        guard let json = toolCallsJSON, let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([InlineToolCall].self, from: data)
     }
 }
 

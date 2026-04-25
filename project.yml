@@ -35,6 +35,21 @@ packages:
     url: https://github.com/gonzalezreal/swift-markdown-ui.git
     from: 2.4.1
 
+  # Particle effects for onboarding
+  Vortex:
+    url: https://github.com/twostraws/Vortex.git
+    from: 1.0.0
+
+  # Rive animation runtime for mascot
+  RiveRuntime:
+    url: https://github.com/rive-app/rive-ios.git
+    from: 6.0.0
+
+  # RevenueCat for subscriptions
+  purchases-ios-spm:
+    url: https://github.com/RevenueCat/purchases-ios-spm.git
+    from: 5.0.0
+
 
 schemes:
   Lisnai:
@@ -70,6 +85,7 @@ targets:
     dependencies:
       - package: FluidAudio
       - target: RecordingActivityExtension
+      - target: NotificationServiceExtension
       # Firebase
       - package: firebase-ios-sdk
         product: FirebaseAuth
@@ -86,6 +102,13 @@ targets:
       # Markdown rendering
       - package: swift-markdown-ui
         product: MarkdownUI
+      # Particle effects for onboarding
+      - package: Vortex
+      # Rive mascot animation
+      - package: RiveRuntime
+      # RevenueCat subscriptions
+      - package: purchases-ios-spm
+        product: RevenueCat
       # EventKit (system framework for Reminders/Calendar)
       - sdk: EventKit.framework
 
@@ -137,6 +160,10 @@ targets:
           - location
           - processing
           - remote-notification
+
+        # BGTaskScheduler permitted identifiers
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.lisnai.ambient-audio-check
 
         # Minimum iOS version
         LSMinimumSystemVersion: "17.0"
@@ -195,3 +222,34 @@ targets:
         CFBundleDisplayName: RecordingActivity
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+  # Notification Service Extension (processes pushes when app is killed)
+  NotificationServiceExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+
+    sources:
+      - path: NotificationServiceExtension
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lisnai.Lisnai.NotificationService
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_STRICT_CONCURRENCY: complete
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+
+    entitlements:
+      path: NotificationServiceExtension/NotificationServiceExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.lisnai.shared
+
+    info:
+      path: NotificationServiceExtension/Info.plist
+      properties:
+        CFBundleDisplayName: NotificationService
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService

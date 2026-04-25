@@ -53,6 +53,10 @@ class NotificationService: ObservableObject {
     func setup() async {
         await requestAuthorization()
         registerNotificationCategories()
+
+        if isAuthorized {
+            scheduleMorningReminder()
+        }
     }
 
     /// Request notification authorization
@@ -486,6 +490,71 @@ class NotificationService: ObservableObject {
             }
         default:
             print("[NotificationService] Unknown syncType: \(syncType)")
+        }
+    }
+
+    // MARK: - NSE Payload Processing
+
+    /// Process payloads queued by the Notification Service Extension while the app was killed
+    func processPendingExtensionPayloads() {
+        let sharedDefaults = UserDefaults(suiteName: "group.com.lisnai.shared")
+        guard let pending = sharedDefaults?.array(forKey: "pendingSyncPayloads") as? [[String: String]],
+              !pending.isEmpty else {
+            return
+        }
+
+        print("[NotificationService] Processing \(pending.count) payloads queued by NSE")
+
+        for payload in pending {
+            guard let syncType = payload["syncType"],
+                  let syncData = payload["syncData"] else { continue }
+
+            let userInfo: [AnyHashable: Any] = [
+                "syncType": syncType,
+                "syncData": syncData,
+            ]
+            processIncomingDataPayload(userInfo)
+        }
+
+        // Clear the queue
+        sharedDefaults?.removeObject(forKey: "pendingSyncPayloads")
+        print("[NotificationService] Cleared NSE payload queue")
+    }
+
+    // MARK: - Morning Reminder (Local Fallback)
+
+    /// Schedule a recurring local morning notification as reliability fallback for APNs briefing
+    func scheduleMorningReminder(hour: Int = 7, minute: Int = 0) {
+        let center = UNUserNotificationCenter.current()
+
+        // Remove existing morning reminder to avoid duplicates
+        center.removePendingNotificationRequests(withIdentifiers: ["morning-briefing-local"])
+
+        let content = UNMutableNotificationContent()
+        content.title = "Your day at a glance"
+        content.body = "Yesterday's highlights, today's commitments, and what Lisn picked up — all in one place."
+        content.sound = .default
+        content.categoryIdentifier = Category.dailyBriefing.rawValue
+        content.threadIdentifier = "daily-briefing"
+
+        var dateComponents = DateComponents()
+        dateComponents.hour = hour
+        dateComponents.minute = minute
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
+
+        let request = UNNotificationRequest(
+            identifier: "morning-briefing-local",
+            content: content,
+            trigger: trigger
+        )
+
+        center.add(request) { error in
+            if let error = error {
+                print("[NotificationService] Failed to schedule morning reminder: \(error)")
+            } else {
+                print("[NotificationService] Morning reminder scheduled for \(hour):\(String(format: "%02d", minute))")
+            }
         }
     }
 

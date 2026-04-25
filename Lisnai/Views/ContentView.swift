@@ -6,7 +6,10 @@ struct ContentView: View {
     @EnvironmentObject var recordingManager: RecordingManager
     @EnvironmentObject var locationManager: LocationManager
     @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var subscriptionService: SubscriptionService
     @State private var breathe = false
+    @State private var showPaywall = false
+    @AppStorage("hasSeenPostOnboardingPaywall") private var hasSeenPostOnboardingPaywall = false
 
     var body: some View {
         Group {
@@ -18,6 +21,21 @@ struct ContentView: View {
                     .onAppear {
                         // Start suggestion monitoring when user is logged in
                         SuggestionMonitor.shared.startMonitoring()
+
+                        // Show post-onboarding paywall once
+                        if !hasSeenPostOnboardingPaywall {
+                            hasSeenPostOnboardingPaywall = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                showPaywall = true
+                            }
+                        }
+
+                        // Paywall disabled — will enforce via Apple IAP later
+                        // if subscriptionService.status == .expired && subscriptionService.tier == .free {
+                        //     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        //         showPaywall = true
+                        //     }
+                        // }
                     }
                     .onDisappear {
                         SuggestionMonitor.shared.stopMonitoring()
@@ -32,6 +50,10 @@ struct ContentView: View {
         }
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: authService.isLoggedIn)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: authService.isAuthReady)
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+                .environmentObject(subscriptionService)
+        }
     }
 
     // MARK: - Loading View

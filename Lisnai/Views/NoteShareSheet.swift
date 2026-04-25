@@ -6,7 +6,7 @@ import UIKit
 /// which includes "Save to Notes" as a target.
 struct NoteShareSheet: UIViewControllerRepresentable {
     let text: String
-    let onDismiss: () -> Void
+    let onShared: () -> Void
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let activityVC = UIActivityViewController(
@@ -14,8 +14,10 @@ struct NoteShareSheet: UIViewControllerRepresentable {
             applicationActivities: nil
         )
 
-        activityVC.completionWithItemsHandler = { _, _, _, _ in
-            onDismiss()
+        activityVC.completionWithItemsHandler = { _, completed, _, _ in
+            if completed {
+                onShared()
+            }
         }
 
         return activityVC

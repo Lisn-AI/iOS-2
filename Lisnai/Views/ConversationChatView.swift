@@ -2,25 +2,50 @@ import SwiftUI
 import SwiftData
 import MarkdownUI
 
-/// Ephemeral per-conversation chat sheet
-/// Messages are not persisted — dismissed sheet clears history
+/// Per-recording chat — messages are persisted via ChatService with recordingId scoping
 struct ConversationChatView: View {
     let recording: Recording
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
-    @State private var messages: [EphemeralMessage] = []
+    @State private var chatService: ChatService?
     @State private var inputText = ""
-    @State private var isLoading = false
-    @State private var isStreaming = false
-    @State private var streamingText = ""
-    @State private var error: String?
+    @State private var showClearConfirm = false
     @FocusState private var isInputFocused: Bool
+
+    /// Build rich context from recording's transcript + summary + insights
+    private var recordingContext: String {
+        var parts: [String] = []
+
+        if let summary = recording.summary?.text {
+            parts.append("## Summary\n\(summary)")
+        }
+
+        if let transcript = recording.transcription?.text {
+            parts.append("## Full Transcript\n\(transcript)")
+        }
+
+        if let insight = recording.insight {
+            var insightText = "## Insight\n"
+            insightText += "Setting: \(insight.setting)\n"
+            if let mood = insight.mood { insightText += "Mood: \(mood)\n" }
+            insightText += insight.thirdPersonTake
+            let ideas = insight.actionableIdeas
+            if !ideas.isEmpty {
+                insightText += "\n\nActionable Ideas:\n" + ideas.map { "- \($0)" }.joined(separator: "\n")
+            }
+            parts.append(insightText)
+        }
+
+        return parts.isEmpty ? "No recording data available." : parts.joined(separator: "\n\n---\n\n")
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                messagesScrollView
+                if let service = chatService {
+                    messagesScrollView(service: service)
+                }
 
                 // Bottom fade — above scroll, below input bar
                 VStack(spacing: 0) {
@@ -38,7 +63,7 @@ struct ConversationChatView: View {
                 VStack {
                     Spacer()
                     VStack(spacing: 0) {
-                        if let error = error {
+                        if let error = chatService?.error {
                             errorBanner(error)
                         }
 
@@ -53,32 +78,58 @@ struct ConversationChatView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button(role: .destructive) {
+                            showClearConfirm = true
+                        } label: {
+                            Label("Clear Chat", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .foregroundColor(LisnColors.textSecondary)
+                    }
+                }
+            }
+            .confirmationDialog("Clear Chat", isPresented: $showClearConfirm) {
+                Button("Clear All Messages", role: .destructive) {
+                    chatService?.clearHistory()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will delete all messages in this recording's chat.")
             }
         }
         .presentationDragIndicator(.visible)
+        .onAppear {
+            if chatService == nil {
+                chatService = ChatService(modelContext: modelContext, recordingId: recording.id)
+            }
+            chatService?.loadHistory()
+        }
         .onTapGesture { isInputFocused = false }
     }
 
     // MARK: - Messages
 
-    private var messagesScrollView: some View {
+    private func messagesScrollView(service: ChatService) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: LisnSpacing.xxxs) {
-                    if messages.isEmpty && !isLoading {
+                    if service.messages.isEmpty && !service.isLoading {
                         conversationContextBanner
                             .padding(.top, LisnSpacing.md)
                     }
 
-                    ForEach(messages) { message in
-                        EphemeralMessageBubble(
+                    ForEach(service.messages) { message in
+                        MessageBubble(
                             message: message,
-                            isStreaming: !message.isUser && message.id == messages.last?.id && isStreaming
+                            isStreaming: !message.isUser && message.id == service.messages.last?.id && service.isStreaming
                         )
                         .id(message.id)
                     }
 
-                    if isLoading && !isStreaming {
+                    if service.isLoading && !service.isStreaming {
                         ThinkingIndicator()
                             .padding(.top, LisnSpacing.xs)
                             .id("typing")
@@ -90,12 +141,12 @@ struct ConversationChatView: View {
             }
             .contentMargins(.bottom, 140, for: .scrollContent)
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: messages.count) { _, _ in
+            .onChange(of: service.messages.count) { _, _ in
                 withAnimation(.easeOut(duration: 0.3)) {
                     proxy.scrollTo("bottom", anchor: .bottom)
                 }
             }
-            .onChange(of: isLoading) { _, loading in
+            .onChange(of: service.isLoading) { _, loading in
                 if loading {
                     withAnimation(.easeOut(duration: 0.3)) {
                         proxy.scrollTo("bottom", anchor: .bottom)
@@ -141,7 +192,7 @@ struct ConversationChatView: View {
                 .foregroundColor(LisnColors.textPrimary)
             Spacer()
             Button {
-                withAnimation { self.error = nil }
+                withAnimation { chatService?.error = nil }
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundColor(LisnColors.textSecondary)
@@ -156,7 +207,7 @@ struct ConversationChatView: View {
 
     private var canSend: Bool {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        && !isLoading && !isStreaming
+        && !(chatService?.isLoading ?? false) && !(chatService?.isStreaming ?? false)
     }
 
     private var inputBar: some View {
@@ -192,175 +243,9 @@ struct ConversationChatView: View {
         inputText = ""
         isInputFocused = false
 
-        // Add user message
-        messages.append(EphemeralMessage(content: text, isUser: true))
-
-        isLoading = true
-        isStreaming = false
-        streamingText = ""
-        error = nil
-
         Task {
-            await streamResponse(for: text)
+            await chatService?.sendMessageWithContext(text, context: recordingContext, chatMode: "conversation")
         }
-    }
-
-    private func streamResponse(for message: String) async {
-        // Timeout: if stuck thinking for 45s with no stream data, show error
-        let timeoutTask = Task { @MainActor in
-            try await Task.sleep(nanoseconds: 45_000_000_000)
-            if self.isLoading && !self.isStreaming {
-                self.error = "Response timed out. Please try again."
-                self.isLoading = false
-                self.isStreaming = false
-                if let last = self.messages.last, !last.isUser, last.content.isEmpty {
-                    self.messages.removeLast()
-                }
-            }
-        }
-
-        do {
-            // Build history from ephemeral messages
-            let history = messages.suffix(6).map { msg in
-                ChatHistoryItem(
-                    role: msg.isUser ? "user" : "assistant",
-                    content: msg.content
-                )
-            }
-
-            // The recording summary is always injected as context
-            let context = recording.summary?.text
-
-            let stream = try await DataService.shared.chatStream(
-                message: message,
-                history: Array(history),
-                context: context,
-                modelContext: modelContext
-            )
-
-            // Create placeholder assistant message
-            var assistantMessage = EphemeralMessage(content: "", isUser: false)
-            messages.append(assistantMessage)
-            let assistantIndex = messages.count - 1
-
-            var fullText = ""
-
-            for await event in stream {
-                switch event {
-                case .sources(let sources):
-                    if let data = try? JSONEncoder().encode(sources),
-                       let json = String(data: data, encoding: .utf8) {
-                        messages[assistantIndex].sourcesJSON = json
-                    }
-
-                case .toolCall(let id, let skill, let tool, let params):
-                    // Tool call is progress — stop showing thinking indicator
-                    if isLoading {
-                        isLoading = false
-                        timeoutTask.cancel()
-                    }
-                    let toolCall = InlineToolCall.from(id: id, skill: skill, tool: tool, params: params)
-                    var existing = messages[assistantIndex].decodedToolCalls ?? []
-                    existing.append(toolCall)
-                    if let data = try? JSONEncoder().encode(existing),
-                       let json = String(data: data, encoding: .utf8) {
-                        messages[assistantIndex].toolCallsJSON = json
-                    }
-
-                case .toolResult(let id, _, _, let result):
-                    var existing = messages[assistantIndex].decodedToolCalls ?? []
-                    if let idx = existing.firstIndex(where: { $0.id == id }) {
-                        existing[idx].resultMessage = result.message
-                        existing[idx].actionId = result.actionId
-                        existing[idx].pendingPermissionId = result.pendingPermissionId
-                        if result.status == "permission_required" {
-                            existing[idx].status = .permissionRequired
-                        } else if result.success {
-                            existing[idx].status = .completed
-                        } else {
-                            existing[idx].status = .failed
-                        }
-                        if let data = try? JSONEncoder().encode(existing),
-                           let json = String(data: data, encoding: .utf8) {
-                            messages[assistantIndex].toolCallsJSON = json
-                        }
-                    }
-
-                case .stepFinish:
-                    break // logging only
-
-                case .delta(let chunk):
-                    if !isStreaming {
-                        isStreaming = true
-                        isLoading = false
-                        timeoutTask.cancel()
-                    }
-                    fullText += chunk
-                    streamingText = fullText
-                    messages[assistantIndex].content = fullText
-
-                case .done:
-                    timeoutTask.cancel()
-                    isStreaming = false
-                    isLoading = false
-                    streamingText = ""
-                    messages[assistantIndex].content = fullText
-
-                case .error(let errorMsg):
-                    timeoutTask.cancel()
-                    self.error = errorMsg
-                    isStreaming = false
-                    isLoading = false
-                    if messages[assistantIndex].content.isEmpty {
-                        messages.removeLast()
-                    }
-                }
-            }
-
-            // Handle stream ending without .done
-            timeoutTask.cancel()
-            if isStreaming || isLoading {
-                isStreaming = false
-                streamingText = ""
-                isLoading = false
-                if fullText.isEmpty && messages[assistantIndex].content.isEmpty {
-                    messages.removeLast()
-                }
-            }
-
-        } catch {
-            timeoutTask.cancel()
-            self.error = error.localizedDescription
-            isStreaming = false
-            isLoading = false
-        }
-    }
-}
-
-// MARK: - Ephemeral Message
-
-struct EphemeralMessage: Identifiable {
-    let id = UUID()
-    var content: String
-    let isUser: Bool
-    let timestamp = Date()
-    var sourcesJSON: String?
-    var toolCallsJSON: String?
-
-    var formattedTime: String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: timestamp)
-    }
-
-    var sourceIds: [String] {
-        guard let json = sourcesJSON, let data = json.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
-    }
-
-    var decodedToolCalls: [InlineToolCall]? {
-        guard let json = toolCallsJSON, let data = json.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode([InlineToolCall].self, from: data)
     }
 }
 
@@ -381,119 +266,6 @@ private struct ConversationLiquidGlassInputBarModifier: ViewModifier {
                 )
                 .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
                 .background(.ultraThinMaterial)
-        }
-    }
-}
-
-// MARK: - Ephemeral Message Bubble
-
-/// Reuses the same visual style as MessageBubble but works with EphemeralMessage
-struct EphemeralMessageBubble: View {
-    let message: EphemeralMessage
-    var isStreaming: Bool = false
-    @State private var citationSourceIds: [String] = []
-    @State private var showCitationSheet = false
-
-    var body: some View {
-        // Hide empty AI placeholder messages (shown during thinking before streaming starts)
-        // But show if tool calls exist — the action snippet should be visible during "Preparing..."
-        if !message.isUser && message.content.isEmpty && !isStreaming && (message.decodedToolCalls ?? []).isEmpty {
-            EmptyView()
-        } else if message.isUser {
-            HStack {
-                Spacer(minLength: 60)
-                VStack(alignment: .trailing, spacing: LisnSpacing.xxs) {
-                    Text(message.content)
-                        .font(.system(size: 17))
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .foregroundColor(LisnColors.textPrimary)
-                        .background(LisnColors.bgSecondary)
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-
-                    Text(message.formattedTime)
-                        .font(LisnFont.labelSmall())
-                        .foregroundColor(LisnColors.textTertiary)
-                        .padding(.horizontal, LisnSpacing.xxs)
-                }
-            }
-            .padding(.horizontal, LisnSpacing.sm)
-            .padding(.vertical, LisnSpacing.xxs)
-        } else {
-            HStack(alignment: .top, spacing: LisnSpacing.xs) {
-                Circle()
-                    .fill(LisnColors.bgElevated)
-                    .frame(width: 28, height: 28)
-                    .overlay(
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(LisnColors.accent)
-                    )
-                    .shadow(
-                        color: LisnShadow.sm.color,
-                        radius: LisnShadow.sm.radius,
-                        x: LisnShadow.sm.x,
-                        y: LisnShadow.sm.y
-                    )
-
-                VStack(alignment: .leading, spacing: LisnSpacing.xxs) {
-                    Group {
-                        if isStreaming {
-                            Text(message.content)
-                                .font(.system(size: 17))
-                                .foregroundColor(LisnColors.textPrimary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        } else {
-                            Markdown(message.content)
-                                .markdownTheme(.lisnAI)
-                                .markdownCodeSyntaxHighlighter(.plain)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .environment(\.openURL, OpenURLAction { url in
-                                    if url.scheme == "lisn", url.host == "cite",
-                                       let citeStr = url.pathComponents.dropFirst().first,
-                                       let citeNum = Int(citeStr),
-                                       citeNum >= 1, citeNum <= message.sourceIds.count {
-                                        citationSourceIds = [message.sourceIds[citeNum - 1]]
-                                        showCitationSheet = true
-                                        return .handled
-                                    }
-                                    return .systemAction
-                                })
-                        }
-                    }
-                    .textSelection(.enabled)
-                    .padding(.top, 4)
-
-                    // Tool call action snippets
-                    if let toolCalls = message.decodedToolCalls, !toolCalls.isEmpty {
-                        ForEach(toolCalls) { toolCall in
-                            ActionSnippetView(toolCall: toolCall)
-                        }
-                    }
-
-                    HStack(spacing: 4) {
-                        if isStreaming {
-                            StreamingCursor()
-                        }
-                        Text(message.formattedTime)
-                            .font(LisnFont.labelSmall())
-                            .foregroundColor(LisnColors.textTertiary)
-                    }
-
-                    if !isStreaming && !message.content.isEmpty {
-                        ResponseActionBar(content: message.content, sourceIds: message.sourceIds)
-                            .padding(.top, 2)
-                            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topLeading)).combined(with: .offset(y: 6)))
-                            .animation(.easeOut(duration: 0.35), value: isStreaming)
-                    }
-                }
-            }
-            .padding(.horizontal, LisnSpacing.sm)
-            .padding(.vertical, LisnSpacing.xxs)
-            .sheet(isPresented: $showCitationSheet) {
-                SourcesListSheet(sourceIds: citationSourceIds)
-            }
         }
     }
 }

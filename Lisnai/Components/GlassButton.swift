@@ -11,6 +11,34 @@ struct GlassButton: View {
     @State private var isPressed = false
 
     var body: some View {
+        if #available(iOS 26.0, *) {
+            iOS26Button
+        } else {
+            legacyButton
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private var iOS26Button: some View {
+        Button {
+            LisnHaptics.medium()
+            action()
+        } label: {
+            HStack(spacing: LisnSpacing.xs) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(label)
+                    .font(LisnFont.labelMedium())
+            }
+            .foregroundColor(isDestructive ? LisnColors.textSecondary : accentColor)
+            .padding(.horizontal, LisnSpacing.lg)
+            .padding(.vertical, LisnSpacing.sm + 2)
+            .glassEffect(.regular.interactive(), in: .capsule)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var legacyButton: some View {
         Button {
             LisnHaptics.medium()
             action()

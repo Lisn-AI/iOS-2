@@ -2,6 +2,93 @@ import ActivityKit
 import WidgetKit
 import SwiftUI
 
+// MARK: - Creative Visual Helpers
+
+/// Glowing icon with concentric pulse rings — gives depth to leading icons
+struct GlowingIcon: View {
+    let systemName: String
+    let color: Color
+    let size: Font
+
+    var body: some View {
+        ZStack {
+            // Outer glow ring
+            Circle()
+                .fill(color.opacity(0.08))
+                .frame(width: 38, height: 38)
+            // Inner glow ring
+            Circle()
+                .fill(color.opacity(0.18))
+                .frame(width: 28, height: 28)
+            // Icon
+            Image(systemName: systemName)
+                .font(size)
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [color, color.opacity(0.7)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        }
+    }
+}
+
+/// Radiating live indicator — replaces the plain dot for active recording
+struct LivePulseIndicator: View {
+    let color: Color
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.15))
+                .frame(width: 16, height: 16)
+            Circle()
+                .fill(color.opacity(0.35))
+                .frame(width: 10, height: 10)
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+        }
+    }
+}
+
+/// Lock screen icon badge with gradient ring
+struct LockScreenIconBadge: View {
+    let systemName: String
+    let color: Color
+
+    var body: some View {
+        ZStack {
+            // Gradient ring
+            Circle()
+                .stroke(
+                    LinearGradient(
+                        colors: [color.opacity(0.5), color.opacity(0.1)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 2
+                )
+                .frame(width: 48, height: 48)
+            // Fill
+            Circle()
+                .fill(color.opacity(0.12))
+                .frame(width: 44, height: 44)
+            // Icon
+            Image(systemName: systemName)
+                .font(.title2)
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [color, color.opacity(0.7)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        }
+    }
+}
+
 struct RecordingActivityLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: RecordingActivityAttributes.self) { context in
@@ -223,14 +310,14 @@ struct RecordingActivityLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                // Compact leading (left pill)
+                // Compact leading (left pill) — gradient-tinted icons
                 switch context.state.state {
                 case .recording:
                     Image(systemName: "mic.fill")
-                        .foregroundColor(LisnSharedColors.accent)
+                        .foregroundStyle(LinearGradient(colors: [LisnSharedColors.accent, LisnSharedColors.accent.opacity(0.6)], startPoint: .top, endPoint: .bottom))
                 case .resumed:
                     Image(systemName: "mic.fill")
-                        .foregroundColor(LisnSharedColors.accent)
+                        .foregroundStyle(LinearGradient(colors: [LisnSharedColors.success, LisnSharedColors.accent], startPoint: .top, endPoint: .bottom))
                 case .paused:
                     Image(systemName: "pause.fill")
                         .foregroundColor(LisnSharedColors.paused)
@@ -239,26 +326,25 @@ struct RecordingActivityLiveActivity: Widget {
                         .foregroundColor(LisnSharedColors.accent)
                 case .readyToResume:
                     Image(systemName: "play.fill")
-                        .foregroundColor(LisnSharedColors.accent)
+                        .foregroundStyle(LinearGradient(colors: [LisnSharedColors.accent, LisnSharedColors.success], startPoint: .leading, endPoint: .trailing))
                 case .suggestion:
-                    Image(systemName: "lightbulb.fill")
-                        .foregroundColor(LisnSharedColors.accent)
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(LinearGradient(colors: [LisnSharedColors.accent, .yellow], startPoint: .topLeading, endPoint: .bottomTrailing))
                 }
             } compactTrailing: {
-                // Compact trailing (right pill)
+                // Compact trailing (right pill) — enhanced indicators
                 switch context.state.state {
                 case .recording:
-                    Circle()
-                        .fill(LisnSharedColors.accent)
-                        .frame(width: 8, height: 8)
+                    LivePulseIndicator(color: LisnSharedColors.accent)
                 case .resumed:
                     Text("Active")
                         .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(LisnSharedColors.accent)
+                        .fontWeight(.bold)
+                        .foregroundStyle(LinearGradient(colors: [LisnSharedColors.success, LisnSharedColors.accent], startPoint: .leading, endPoint: .trailing))
                 case .readyToResume:
                     Text("Resume")
                         .font(.caption2)
+                        .fontWeight(.medium)
                         .foregroundColor(LisnSharedColors.accent)
                 case .paused:
                     Text("Paused")
@@ -271,25 +357,27 @@ struct RecordingActivityLiveActivity: Widget {
                 case .suggestion:
                     Text("Tip")
                         .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(LisnSharedColors.accent)
+                        .fontWeight(.bold)
+                        .foregroundStyle(LinearGradient(colors: [LisnSharedColors.accent, .yellow], startPoint: .leading, endPoint: .trailing))
                 }
             } minimal: {
-                // Minimal view (when another app has priority)
+                // Minimal view (when another app has priority) — tiny but expressive
                 switch context.state.state {
                 case .recording, .resumed:
-                    Circle()
-                        .fill(LisnSharedColors.accent)
-                        .frame(width: 8, height: 8)
+                    LivePulseIndicator(color: LisnSharedColors.accent)
+                        .scaleEffect(0.7)
                 case .paused, .readyToResume:
                     Image(systemName: "pause.fill")
+                        .font(.caption2)
                         .foregroundColor(LisnSharedColors.paused)
                 case .manualPause:
                     Image(systemName: "pause.fill")
+                        .font(.caption2)
                         .foregroundColor(LisnSharedColors.accent)
                 case .suggestion:
-                    Image(systemName: "lightbulb.fill")
-                        .foregroundColor(LisnSharedColors.accent)
+                    Image(systemName: "sparkles")
+                        .font(.caption2)
+                        .foregroundStyle(LinearGradient(colors: [LisnSharedColors.accent, .yellow], startPoint: .top, endPoint: .bottom))
                 }
             }
         }
@@ -299,29 +387,17 @@ struct RecordingActivityLiveActivity: Widget {
     private func expandedLeadingIcon(for state: RecordingActivityAttributes.RecordingState) -> some View {
         switch state {
         case .recording:
-            Image(systemName: "mic.fill")
-                .font(.title)
-                .foregroundColor(LisnSharedColors.accent)
+            GlowingIcon(systemName: "mic.fill", color: LisnSharedColors.accent, size: .title2)
         case .resumed:
-            Image(systemName: "mic.fill")
-                .font(.title)
-                .foregroundColor(LisnSharedColors.accent)
+            GlowingIcon(systemName: "mic.fill", color: LisnSharedColors.success, size: .title2)
         case .paused:
-            Image(systemName: "pause.circle.fill")
-                .font(.title)
-                .foregroundColor(LisnSharedColors.paused)
+            GlowingIcon(systemName: "pause.circle.fill", color: LisnSharedColors.paused, size: .title2)
         case .manualPause:
-            Image(systemName: "pause.circle.fill")
-                .font(.title)
-                .foregroundColor(LisnSharedColors.accent)
+            GlowingIcon(systemName: "pause.circle.fill", color: LisnSharedColors.accent, size: .title2)
         case .readyToResume:
-            Image(systemName: "mic.circle.fill")
-                .font(.title)
-                .foregroundColor(LisnSharedColors.accent)
+            GlowingIcon(systemName: "play.circle.fill", color: LisnSharedColors.accent, size: .title2)
         case .suggestion:
-            Image(systemName: "lightbulb.fill")
-                .font(.title)
-                .foregroundColor(LisnSharedColors.accent)
+            GlowingIcon(systemName: "sparkles", color: LisnSharedColors.accent, size: .title2)
         }
     }
 }
@@ -332,10 +408,11 @@ struct LockScreenView: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            // Icon
-            Image(systemName: context.state.state == .paused ? "pause.circle.fill" : "mic.circle.fill")
-                .font(.largeTitle)
-                .foregroundColor(context.state.state == .paused ? LisnSharedColors.paused : LisnSharedColors.accent)
+            // Icon with gradient ring
+            LockScreenIconBadge(
+                systemName: context.state.state == .paused ? "pause.circle.fill" : "play.circle.fill",
+                color: context.state.state == .paused ? LisnSharedColors.paused : LisnSharedColors.accent
+            )
 
             // Text content
             VStack(alignment: .leading, spacing: 4) {
@@ -379,16 +456,8 @@ struct ManualPauseLockScreenView: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            // Pause icon in accent color
-            ZStack {
-                Circle()
-                    .fill(LisnSharedColors.accent.opacity(0.15))
-                    .frame(width: 44, height: 44)
-
-                Image(systemName: "pause.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(LisnSharedColors.accent)
-            }
+            // Pause icon with gradient ring
+            LockScreenIconBadge(systemName: "pause.circle.fill", color: LisnSharedColors.accent)
 
             // Text content
             VStack(alignment: .leading, spacing: 3) {
@@ -417,7 +486,7 @@ struct ManualPauseLockScreenView: View {
                     Button(intent: ResumeRecordingIntent()) {
                         Image(systemName: "play.circle.fill")
                             .font(.title2)
-                            .foregroundColor(LisnSharedColors.accent)
+                            .foregroundStyle(LinearGradient(colors: [LisnSharedColors.accent, LisnSharedColors.success], startPoint: .top, endPoint: .bottom))
                     }
                     .buttonStyle(.plain)
                 }
@@ -435,15 +504,13 @@ struct ResumedLockScreenView: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Image(systemName: "mic.fill")
-                .font(.largeTitle)
-                .foregroundColor(LisnSharedColors.accent)
+            LockScreenIconBadge(systemName: "mic.fill", color: LisnSharedColors.success)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(context.state.message)
                     .font(.headline)
                     .fontWeight(.semibold)
-                    .foregroundColor(LisnSharedColors.accent)
+                    .foregroundStyle(LinearGradient(colors: [LisnSharedColors.success, LisnSharedColors.accent], startPoint: .leading, endPoint: .trailing))
 
                 Text("Recording is active")
                     .font(.subheadline)
@@ -454,7 +521,7 @@ struct ResumedLockScreenView: View {
 
             Image(systemName: "checkmark.circle.fill")
                 .font(.title)
-                .foregroundColor(LisnSharedColors.accent)
+                .foregroundStyle(LinearGradient(colors: [LisnSharedColors.success, LisnSharedColors.accent], startPoint: .top, endPoint: .bottom))
         }
         .padding()
         .activityBackgroundTint(LisnSharedColors.accent.opacity(0.15))
@@ -467,16 +534,8 @@ struct RecordingLockScreenView: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            // Mic icon with subtle glow
-            ZStack {
-                Circle()
-                    .fill(LisnSharedColors.accent.opacity(0.15))
-                    .frame(width: 44, height: 44)
-
-                Image(systemName: "mic.fill")
-                    .font(.title2)
-                    .foregroundColor(LisnSharedColors.accent)
-            }
+            // Mic icon with gradient ring
+            LockScreenIconBadge(systemName: "mic.fill", color: LisnSharedColors.accent)
 
             // Text content
             VStack(alignment: .leading, spacing: 3) {
@@ -530,16 +589,11 @@ struct SuggestionLockScreenView: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 14) {
-                // Suggestion icon
-                ZStack {
-                    Circle()
-                        .fill(LisnSharedColors.accent.opacity(0.15))
-                        .frame(width: 44, height: 44)
-
-                    Image(systemName: isAction ? "bell.badge.fill" : "lightbulb.fill")
-                        .font(.title2)
-                        .foregroundColor(LisnSharedColors.accent)
-                }
+                // Suggestion icon with gradient ring
+                LockScreenIconBadge(
+                    systemName: isAction ? "bolt.fill" : "sparkles",
+                    color: LisnSharedColors.accent
+                )
 
                 // Title + body
                 VStack(alignment: .leading, spacing: 3) {
@@ -568,7 +622,7 @@ struct SuggestionLockScreenView: View {
                 }
             }
 
-            // "Do it" button for action suggestions
+            // "Do it" button for action suggestions — gradient CTA
             if isAction {
                 if #available(iOS 17.0, *) {
                     Button(intent: ExecuteSuggestionActionIntent()) {
@@ -581,7 +635,13 @@ struct SuggestionLockScreenView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(LisnSharedColors.accent)
+                        .background(
+                            LinearGradient(
+                                colors: [LisnSharedColors.accent, LisnSharedColors.accent.opacity(0.7)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
                         .foregroundColor(.white)
                         .cornerRadius(10)
                     }
