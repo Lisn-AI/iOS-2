@@ -71,11 +71,24 @@ class ChatService: ObservableObject {
 
         do {
             // Send full history — backend handles compaction (summarizes older messages, keeps recent 6)
+            // For assistant messages that performed tool actions, append a summary so the LLM
+            // knows it already acted (prevents re-triggering on follow-up messages)
             let history = messages.map { message in
-                ChatHistoryItem(
-                    role: message.isUser ? "user" : "assistant",
-                    content: message.content
-                )
+                var content = message.content
+                if !message.isUser, let toolCalls = message.decodedToolCalls, !toolCalls.isEmpty {
+                    let toolSummary = toolCalls.compactMap { tc -> String? in
+                        guard tc.status == .completed || tc.status == .failed else { return nil }
+                        let statusStr = tc.status == .completed ? "completed" : "failed"
+                        if let resultMsg = tc.resultMessage {
+                            return "[Action \(statusStr): \(tc.tool) — \(resultMsg)]"
+                        }
+                        return "[Action \(statusStr): \(tc.tool)]"
+                    }.joined(separator: " ")
+                    if !toolSummary.isEmpty {
+                        content = content.isEmpty ? toolSummary : "\(content)\n\(toolSummary)"
+                    }
+                }
+                return ChatHistoryItem(role: message.isUser ? "user" : "assistant", content: content)
             }
 
             print("[ChatService] Sending streaming chat request...")
