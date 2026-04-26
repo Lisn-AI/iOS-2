@@ -8,6 +8,8 @@ struct ActionSnippetView: View {
     @State private var localCompleted = false
     @State private var localFailed = false
     @State private var localResultMessage: String?
+    @State private var showNoteShareSheet = false
+    @State private var pendingNoteTextLocal: String?
 
     private var pendingAction: PendingAction {
         toolCall.toPendingAction()
@@ -78,6 +80,18 @@ struct ActionSnippetView: View {
                     showEditSheet = false
                 }
             )
+        }
+        .sheet(isPresented: $showNoteShareSheet, onDismiss: {
+            Task { await ActionExecutor.shared.completeNoteAction(shared: false) }
+        }) {
+            if let text = pendingNoteTextLocal {
+                NoteShareSheet(text: text) {
+                    Task { await ActionExecutor.shared.completeNoteAction(shared: true) }
+                    localCompleted = true
+                    localResultMessage = "Note saved"
+                    showNoteShareSheet = false
+                }
+            }
         }
     }
 
@@ -200,9 +214,17 @@ struct ActionSnippetView: View {
         Task {
             let result = await ActionExecutor.shared.executeAction(action)
             if result.success {
-                localCompleted = true
-                localResultMessage = result.message
-                LisnHaptics.success()
+                // Notes use a share sheet — present it locally so it works from any sheet context
+                if let noteText = ActionExecutor.shared.pendingNoteText {
+                    pendingNoteTextLocal = noteText
+                    // Small delay to let any dismissing sheet animation finish
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    showNoteShareSheet = true
+                } else {
+                    localCompleted = true
+                    localResultMessage = result.message
+                    LisnHaptics.success()
+                }
             } else {
                 localFailed = true
                 localResultMessage = result.message

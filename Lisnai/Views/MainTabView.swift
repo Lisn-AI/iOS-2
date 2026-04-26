@@ -17,8 +17,6 @@ struct MainTabView: View {
     @State private var showPermissionRules = false
     @StateObject private var actionsViewModel = ActionsViewModel()
     @StateObject private var keyboardObserver = KeyboardObserver()
-    @ObservedObject private var actionExecutor = ActionExecutor.shared
-
     // Live suggestion action state
     @State private var liveSuggestionAction: PendingAction?
     @State private var showSuggestionSuccess = false
@@ -239,21 +237,6 @@ struct MainTabView: View {
                     recordingActionToEdit = nil
                 }
             )
-        }
-        .sheet(isPresented: $actionExecutor.showNoteShareSheet, onDismiss: {
-            Task {
-                await actionExecutor.completeNoteAction(shared: false)
-            }
-        }) {
-            if let noteText = actionExecutor.pendingNoteText {
-                NoteShareSheet(text: noteText) {
-                    Task {
-                        await actionExecutor.completeNoteAction(shared: true)
-                    }
-                    suggestionSuccessMessage = "Note saved successfully"
-                    showSuggestionSuccess = true
-                }
-            }
         }
         .alert("Success", isPresented: $showSuggestionSuccess) {
             Button("OK") { }
