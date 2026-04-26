@@ -22,19 +22,20 @@ class LocalSearchService {
     func searchMemories(
         query: String,
         limit: Int = 10,
-        threshold: Float = 0.4,
+        threshold: Float = 0.35,
         context: ModelContext
     ) async -> [LocalSearchResult] {
-        print("[LocalSearch] Vector search — query=\"\(query.prefix(50))\", limit=\(limit), threshold=\(threshold)")
+        print("[LocalSearch] Hybrid search — query=\"\(query.prefix(50))\", limit=\(limit), threshold=\(threshold)")
+
+        // Always run keyword search in parallel (catches proper nouns, dates, names missed by vector)
+        let keywordResults = keywordSearch(query: query, limit: limit * 2, context: context)
+        print("[LocalSearch] Keyword search: \(keywordResults.count) results")
 
         // Step 1: Get query embedding from backend
         guard let queryEmbedding = await generateEmbedding(text: query) else {
-            print("[LocalSearch] Embedding generation failed, falling back to keyword search")
-            // Fallback to keyword search
-            let results = keywordSearch(query: query, limit: limit, context: context)
-                .map { LocalSearchResult(memory: $0, score: 0.5) }
-            print("[LocalSearch] Keyword fallback returned \(results.count) results")
-            return results
+            print("[LocalSearch] Embedding generation failed — returning keyword results only")
+            let mapped = keywordResults.map { LocalSearchResult(memory: $0, score: 0.45) }
+            return Array(mapped.prefix(limit))
         }
 
         print("[LocalSearch] Query embedding generated (\(queryEmbedding.count) dims)")
@@ -44,27 +45,45 @@ class LocalSearchService {
             predicate: #Predicate { $0.embeddingData != nil }
         )
         guard let memories = try? context.fetch(descriptor), !memories.isEmpty else {
-            print("[LocalSearch] No local memories with embeddings found")
-            return []
+            print("[LocalSearch] No local memories with embeddings — returning keyword results")
+            return keywordResults.map { LocalSearchResult(memory: $0, score: 0.45) }
         }
 
         print("[LocalSearch] Searching \(memories.count) local memories with vDSP cosine similarity")
 
-        // Step 3: Compute cosine similarity for each memory
-        var results: [LocalSearchResult] = []
-
+        // Step 3: Vector similarity for all memories
+        var vectorResults: [LocalSearchResult] = []
         for memory in memories {
             guard let memoryEmbedding = memory.embedding else { continue }
             let score = cosineSimilarity(queryEmbedding, memoryEmbedding)
             if score >= threshold {
-                results.append(LocalSearchResult(memory: memory, score: score))
+                vectorResults.append(LocalSearchResult(memory: memory, score: score))
+            }
+        }
+        vectorResults.sort { $0.score > $1.score }
+        print("[LocalSearch] Vector: \(vectorResults.count) above threshold \(threshold)")
+
+        // Step 4: Merge hybrid results — vector score takes priority for overlap
+        var seen = Set<UUID>()
+        var merged: [LocalSearchResult] = []
+
+        for result in vectorResults {
+            if !seen.contains(result.memory.id) {
+                seen.insert(result.memory.id)
+                merged.append(result)
+            }
+        }
+        // Add keyword-only matches with a 0.4 score (below typical vector hits, above threshold)
+        for memory in keywordResults {
+            if !seen.contains(memory.id) {
+                seen.insert(memory.id)
+                merged.append(LocalSearchResult(memory: memory, score: 0.40))
             }
         }
 
-        // Step 4: Sort by score and return top-k
-        results.sort { $0.score > $1.score }
-        let topResults = Array(results.prefix(limit))
-        print("[LocalSearch] Found \(results.count) matches above threshold, returning top \(topResults.count) (best score=\(topResults.first?.score ?? 0))")
+        merged.sort { $0.score > $1.score }
+        let topResults = Array(merged.prefix(limit))
+        print("[LocalSearch] Hybrid merged: \(topResults.count) results (best score=\(topResults.first?.score ?? 0))")
         return topResults
     }
 

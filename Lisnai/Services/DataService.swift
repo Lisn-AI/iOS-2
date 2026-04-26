@@ -100,7 +100,8 @@ class DataService: ObservableObject {
             print("[DataService] chatStream — searching local memories to send as context")
             let localResults = await localSearch.searchMemories(
                 query: message,
-                limit: 10,
+                limit: 25,
+                threshold: 0.25,  // Backend does fine-grained filtering; send more raw candidates
                 context: ctx
             )
 
