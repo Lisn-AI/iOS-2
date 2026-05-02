@@ -500,7 +500,17 @@ struct MessageBubble: View {
 
                     // Tool call action snippets — collapse completed ones when >2
                     if let toolCalls = message.decodedToolCalls, !toolCalls.isEmpty {
-                        ToolCallsSection(toolCalls: toolCalls)
+                        ToolCallsSection(toolCalls: toolCalls) { toolCallId, newStatus in
+                            // Persist status change to SwiftData so it survives app restart
+                            var updated = message.decodedToolCalls ?? []
+                            if let idx = updated.firstIndex(where: { $0.id == toolCallId }) {
+                                updated[idx].status = newStatus
+                                if let data = try? JSONEncoder().encode(updated),
+                                   let json = String(data: data, encoding: .utf8) {
+                                    message.toolCallsJSON = json
+                                }
+                            }
+                        }
                     }
 
                     // Response action bar — appears with animation after streaming completes
@@ -593,6 +603,7 @@ struct ResponseActionBar: View {
 
 struct ToolCallsSection: View {
     let toolCalls: [InlineToolCall]
+    var onStatusChange: ((String, ToolCallStatus) -> Void)?
     @State private var expanded = false
 
     private var completedCalls: [InlineToolCall] {
@@ -612,7 +623,7 @@ struct ToolCallsSection: View {
         VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
             // Always show active (non-completed) tool calls
             ForEach(activeCalls) { toolCall in
-                ActionSnippetView(toolCall: toolCall)
+                ActionSnippetView(toolCall: toolCall, onStatusChange: onStatusChange)
             }
 
             if shouldCollapse && !expanded {
@@ -651,7 +662,7 @@ struct ToolCallsSection: View {
             } else {
                 // Show all completed tool calls (expanded or fewer than 3)
                 ForEach(completedCalls) { toolCall in
-                    ActionSnippetView(toolCall: toolCall)
+                    ActionSnippetView(toolCall: toolCall, onStatusChange: onStatusChange)
                 }
 
                 // Collapse button when expanded
