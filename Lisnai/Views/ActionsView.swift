@@ -190,7 +190,8 @@ struct ActionsView: View {
         case .phoneNumber:
             break
         case .none:
-            if result.success {
+            // Don't show alert if the action is presenting its own UI (share sheet for notes)
+            if result.success && !result.message.contains("share sheet") {
                 successMessage = result.message
                 showSuccessAlert = true
             }
