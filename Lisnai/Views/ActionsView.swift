@@ -146,10 +146,15 @@ struct ActionsView: View {
             } message: {
                 Text(successMessage)
             }
-            // Sync: refresh when an action is completed from chat
+            // Sync: refresh when an action is completed (from chat or share sheet)
             .onReceive(NotificationCenter.default.publisher(for: .actionCompleted)) { notification in
                 if let actionId = notification.userInfo?["actionId"] as? String {
                     viewModel.pendingActions.removeAll { $0.id == actionId }
+                }
+                // Show success alert if a message was provided (e.g. "Note saved")
+                if let message = notification.userInfo?["message"] as? String {
+                    successMessage = message
+                    showSuccessAlert = true
                 }
             }
         }

@@ -827,6 +827,12 @@ class ActionExecutor: ObservableObject {
                 try? FileManager.default.removeItem(at: tempURL)
                 if completed {
                     Task { await self?.completeActionOnBackend(action) }
+                    // Notify UI to show success alert after share sheet is done
+                    NotificationCenter.default.post(
+                        name: .actionCompleted,
+                        object: nil,
+                        userInfo: ["actionId": action.id, "message": "Note saved"]
+                    )
                 }
             }
 
