@@ -16,6 +16,7 @@ struct ActionsView: View {
     @State private var showSuccessAlert = false
     @State private var successMessage = ""
     @State private var actionToEdit: PendingAction?
+    @State private var actionToExecuteAfterDismiss: PendingAction?
 
     enum ActionTab: String, CaseIterable {
         case active = "Active"
@@ -67,15 +68,20 @@ struct ActionsView: View {
             .refreshable {
                 await viewModel.refresh(modelContext: modelContext)
             }
-            .sheet(item: $actionToEdit) { action in
+            .sheet(item: $actionToEdit, onDismiss: {
+                // Execute AFTER the sheet is fully dismissed — prevents UIKit present() conflicts
+                guard let action = actionToExecuteAfterDismiss else { return }
+                actionToExecuteAfterDismiss = nil
+                Task {
+                    let result = await viewModel.executeAction(action)
+                    handleActionResult(result, for: action)
+                }
+            }) { action in
                 ActionEditSheet(
                     action: action,
                     onConfirm: { editedAction in
-                        actionToEdit = nil
-                        Task {
-                            let result = await viewModel.executeAction(editedAction)
-                            handleActionResult(result, for: editedAction)
-                        }
+                        actionToExecuteAfterDismiss = editedAction
+                        actionToEdit = nil // triggers sheet dismiss → onDismiss fires
                     },
                     onCancel: { actionToEdit = nil }
                 )
