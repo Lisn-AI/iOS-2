@@ -231,7 +231,7 @@ struct RecordingDetailView: View {
     private var summaryContent: some View {
         if let summary = recording.summary {
             Markdown(summary.text)
-                .markdownTheme(.lisnAI)
+                .markdownTheme(.lisnContent)
         } else {
             Text("No summary available")
                 .font(LisnFont.bodyLarge())

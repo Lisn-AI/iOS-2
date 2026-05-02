@@ -805,6 +805,120 @@ extension MarkdownUI.Theme {
                 .overlay(LisnColors.textTertiary.opacity(0.3))
                 .markdownMargin(top: 20, bottom: 20)
         }
+
+    /// Premium content theme for recording summaries, insights, and detail pages.
+    /// Warmer colors, wider line spacing, subtle highlight for inline code,
+    /// and section-card-friendly heading styles.
+    static let lisnContent = Theme()
+        .text {
+            ForegroundColor(Color(red: 0.18, green: 0.20, blue: 0.21)) // Soft dark #2D3436
+            FontSize(16)
+        }
+        .strong {
+            FontWeight(.semibold)
+        }
+        .emphasis {
+            FontStyle(.italic)
+        }
+        .code {
+            // Subtle highlight instead of code — same font family, semibold, warm cream bg
+            FontWeight(.semibold)
+            FontSize(.em(0.95))
+            ForegroundColor(Color(red: 0.18, green: 0.20, blue: 0.21))
+            BackgroundColor(Color(red: 1.0, green: 0.95, blue: 0.88).opacity(0.7)) // Warm cream #FFF2E0
+        }
+        .codeBlock { configuration in
+            ScrollView(.horizontal, showsIndicators: false) {
+                configuration.label
+                    .fixedSize(horizontal: false, vertical: true)
+                    .relativeLineSpacing(.em(0.225))
+                    .markdownTextStyle {
+                        FontFamilyVariant(.monospaced)
+                        FontSize(.em(0.85))
+                        ForegroundColor(Color(red: 0.18, green: 0.20, blue: 0.21))
+                    }
+                    .padding(14)
+            }
+            .background(Color(red: 0.98, green: 0.96, blue: 0.93)) // Warm off-white
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .markdownMargin(top: 4, bottom: 16)
+        }
+        .blockquote { configuration in
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(LisnColors.accent.opacity(0.4))
+                    .relativeFrame(width: .em(0.2))
+                configuration.label
+                    .markdownTextStyle {
+                        ForegroundColor(Color(red: 0.30, green: 0.33, blue: 0.35))
+                    }
+                    .relativePadding(.horizontal, length: .em(1))
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .list { configuration in
+            configuration.label
+                .markdownMargin(top: 4, bottom: 8)
+        }
+        .listItem { configuration in
+            configuration.label
+                .markdownMargin(top: .em(0.3))
+        }
+        .heading1 { configuration in
+            configuration.label
+                .relativePadding(.bottom, length: .em(0.3))
+                .relativeLineSpacing(.em(0.15))
+                .markdownMargin(top: 24, bottom: 12)
+                .markdownTextStyle {
+                    FontWeight(.bold)
+                    FontSize(.em(1.65))
+                    ForegroundColor(Color(red: 0.12, green: 0.13, blue: 0.14))
+                }
+        }
+        .heading2 { configuration in
+            configuration.label
+                .relativeLineSpacing(.em(0.15))
+                .markdownMargin(top: 20, bottom: 10)
+                .markdownTextStyle {
+                    FontWeight(.bold)
+                    FontSize(.em(1.35))
+                    ForegroundColor(Color(red: 0.12, green: 0.13, blue: 0.14))
+                }
+        }
+        .heading3 { configuration in
+            configuration.label
+                .relativeLineSpacing(.em(0.15))
+                .markdownMargin(top: 18, bottom: 8)
+                .markdownTextStyle {
+                    FontWeight(.bold)
+                    FontSize(.em(1.15))
+                    ForegroundColor(LisnColors.accent)
+                }
+        }
+        .heading4 { configuration in
+            configuration.label
+                .relativeLineSpacing(.em(0.15))
+                .markdownMargin(top: 14, bottom: 6)
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(.em(1.05))
+                    ForegroundColor(Color(red: 0.30, green: 0.33, blue: 0.35))
+                }
+        }
+        .link {
+            ForegroundColor(LisnColors.accent)
+        }
+        .paragraph { configuration in
+            configuration.label
+                .fixedSize(horizontal: false, vertical: true)
+                .relativeLineSpacing(.em(0.35)) // Wider line spacing for readability
+                .markdownMargin(top: 0, bottom: 14)
+        }
+        .thematicBreak {
+            Divider()
+                .overlay(Color(red: 0.85, green: 0.82, blue: 0.78).opacity(0.5))
+                .markdownMargin(top: 16, bottom: 16)
+        }
 }
 
 // MARK: - Plain Syntax Highlighter (no-op)

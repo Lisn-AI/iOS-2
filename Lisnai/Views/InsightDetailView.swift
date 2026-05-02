@@ -12,7 +12,7 @@ struct InsightDetailView: View {
 
             // Third-person take (markdown)
             Markdown(insight.thirdPersonTake)
-                .markdownTheme(.lisnAI)
+                .markdownTheme(.lisnContent)
 
             // Correlations
             if !insight.correlations.isEmpty {
@@ -82,7 +82,7 @@ struct InsightDetailView: View {
                             .font(LisnFont.captionBold())
                             .foregroundColor(LisnColors.textSecondary)
                         Markdown(correlation.connection)
-                            .markdownTheme(.lisnAI)
+                            .markdownTheme(.lisnContent)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -105,7 +105,7 @@ struct InsightDetailView: View {
 
             ForEach(insight.actionableIdeas, id: \.self) { idea in
                 Markdown(idea)
-                    .markdownTheme(.lisnAI)
+                    .markdownTheme(.lisnContent)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

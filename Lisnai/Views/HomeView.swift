@@ -458,7 +458,7 @@ struct HomeView: View {
             }
 
             Markdown(recordingManager.summary)
-                .markdownTheme(.lisnAI)
+                .markdownTheme(.lisnContent)
         }
         .padding(LisnSpacing.md)
         .background(LisnColors.bgElevated)
