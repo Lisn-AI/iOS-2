@@ -1,101 +1,202 @@
 import SwiftUI
 import Security
 
-/// Gateways page — connect LisnAI memory to external AI tools
+/// Gateways — connect LisnAI memory to external AI tools
 struct GatewaysView: View {
     @StateObject private var viewModel = GatewaysViewModel()
-    @State private var expandedIntegration: String?
+    @State private var expandedId: String?
     @State private var showKeyAlert = false
     @State private var generatedKey = ""
-    @State private var copiedKey = false
+    @State private var justCopied = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: LisnSpacing.lg) {
-                    // Header
-                    VStack(spacing: LisnSpacing.xs) {
-                        Text("Connect your Lisn memory to external AI tools")
-                            .font(LisnFont.bodyMedium())
-                            .foregroundColor(LisnColors.textSecondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(.top, LisnSpacing.sm)
+                VStack(spacing: 0) {
+                    // Hero section
+                    heroSection
+                        .padding(.bottom, LisnSpacing.xl)
 
-                    // API Key Section
+                    // API Key
                     apiKeySection
+                        .padding(.horizontal, LisnSpacing.md)
+                        .padding(.bottom, LisnSpacing.lg)
 
-                    // Integration Cards
-                    integrationCard(
-                        id: "claude",
-                        icon: "sparkles",
-                        iconColor: Color.purple,
-                        name: "Claude Desktop",
-                        description: "Search your memories and chat with your recordings from Claude Desktop or Claude Code",
-                        status: .available,
-                        steps: claudeSteps
-                    )
+                    // Integrations
+                    VStack(alignment: .leading, spacing: LisnSpacing.sm) {
+                        Text("INTEGRATIONS")
+                            .lisnSectionHeader()
+                            .padding(.horizontal, LisnSpacing.md + LisnSpacing.xxs)
 
-                    integrationCard(
-                        id: "cursor",
-                        icon: "chevron.left.forwardslash.chevron.right",
-                        iconColor: Color.blue,
-                        name: "Cursor IDE",
-                        description: "Access your recordings and memory while coding — context from your conversations",
-                        status: .available,
-                        steps: cursorSteps
-                    )
+                        gatewayRow(
+                            id: "claude",
+                            name: "Claude Desktop & Code",
+                            subtitle: "Search memories, chat with recordings, create actions",
+                            iconName: "wand.and.stars",
+                            tint: Color(red: 0.55, green: 0.36, blue: 0.82),
+                            steps: claudeSteps
+                        )
 
-                    integrationCard(
-                        id: "whatsapp",
-                        icon: "message.fill",
-                        iconColor: Color.green,
-                        name: "WhatsApp",
-                        description: "Chat with your memories directly on WhatsApp",
-                        status: .comingSoon,
-                        steps: []
-                    )
+                        gatewayRow(
+                            id: "cursor",
+                            name: "Cursor IDE",
+                            subtitle: "Access your memory corpus while coding",
+                            iconName: "cursorarrow.rays",
+                            tint: Color(red: 0.22, green: 0.46, blue: 0.82),
+                            steps: cursorSteps
+                        )
+
+                        gatewayRow(
+                            id: "whatsapp",
+                            name: "WhatsApp",
+                            subtitle: "Chat with your memories on WhatsApp",
+                            iconName: "ellipsis.message.fill",
+                            tint: Color(red: 0.15, green: 0.68, blue: 0.38),
+                            badge: "Coming Soon",
+                            steps: nil
+                        )
+                    }
+                    .padding(.bottom, LisnSpacing.xxxl)
                 }
-                .padding(.horizontal, LisnSpacing.md)
-                .padding(.bottom, 40)
             }
             .background(LisnColors.bgPrimary)
-            .navigationTitle("Gateways")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") { dismiss() }
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top) {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(LisnColors.textSecondary)
+                            .frame(width: 32, height: 32)
+                            .background(LisnColors.bgSecondary)
+                            .clipShape(Circle())
+                    }
+                    Spacer()
                 }
+                .padding(.horizontal, LisnSpacing.md)
+                .padding(.top, LisnSpacing.xs)
+                .padding(.bottom, LisnSpacing.xs)
             }
-            .task {
-                await viewModel.loadKeys()
-            }
-            .alert("API Key Generated", isPresented: $showKeyAlert) {
-                Button("Copy Key") {
+            .task { await viewModel.loadKeys() }
+            .alert("API Key Created", isPresented: $showKeyAlert) {
+                Button("Copy to Clipboard") {
                     UIPasteboard.general.string = generatedKey
-                    copiedKey = true
                 }
-                Button("Done", role: .cancel) { }
+                Button("Done", role: .cancel) {}
             } message: {
-                Text("Your API key:\n\n\(generatedKey)\n\nCopy it now — it won't be shown again.")
+                Text("Save this key — it won't be shown again.\n\n\(generatedKey)")
             }
         }
+    }
+
+    // MARK: - Hero
+
+    private var heroSection: some View {
+        VStack(spacing: LisnSpacing.sm) {
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [LisnColors.accent.opacity(0.15), LisnColors.accent.opacity(0.05)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 64, height: 64)
+
+                Image(systemName: "network")
+                    .font(.system(size: 26, weight: .medium))
+                    .foregroundStyle(LisnColors.accent)
+            }
+
+            Text("Gateways")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundColor(LisnColors.textPrimary)
+
+            Text("Connect your Lisn memory to\nexternal AI tools")
+                .font(LisnFont.bodyMedium())
+                .foregroundColor(LisnColors.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, LisnSpacing.xl)
     }
 
     // MARK: - API Key Section
 
     private var apiKeySection: some View {
         VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-            Label("API Key", systemImage: "key.fill")
-                .font(LisnFont.titleSmall())
-                .foregroundColor(LisnColors.textPrimary)
+            HStack {
+                Text("YOUR API KEY")
+                    .lisnSectionHeader()
+                Spacer()
+            }
+            .padding(.horizontal, LisnSpacing.xxs)
 
-            if viewModel.keys.isEmpty {
-                // No keys yet
+            if let key = viewModel.keys.first {
+                // Existing key card
+                HStack(spacing: LisnSpacing.sm) {
+                    // Key icon
+                    Image(systemName: "key.fill")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(LisnColors.accent)
+                        .frame(width: 32, height: 32)
+                        .background(LisnColors.accent.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(key.name)
+                            .font(LisnFont.labelLarge())
+                            .foregroundColor(LisnColors.textPrimary)
+
+                        Text(key.keyPrefix + "..." )
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(LisnColors.textTertiary)
+                    }
+
+                    Spacer()
+
+                    // Copy
+                    Button {
+                        if let saved = KeychainHelper.load(key: "lisnai_api_key") {
+                            UIPasteboard.general.string = saved
+                            withAnimation { justCopied = true }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                withAnimation { justCopied = false }
+                            }
+                        }
+                    } label: {
+                        Text(justCopied ? "Copied" : "Copy")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(justCopied ? LisnColors.success : LisnColors.accent)
+                            .padding(.horizontal, LisnSpacing.sm)
+                            .padding(.vertical, LisnSpacing.xxs + 2)
+                            .background(
+                                (justCopied ? LisnColors.success : LisnColors.accent).opacity(0.1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    // Revoke
+                    Button {
+                        Task { await viewModel.revokeKey(id: key.id) }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(LisnColors.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(LisnSpacing.md)
+                .lisnCardStyle()
+            } else {
+                // Generate key prompt
                 VStack(spacing: LisnSpacing.sm) {
-                    Text("Generate an API key to connect external tools to your Lisn memory.")
-                        .font(LisnFont.bodyMedium())
+                    Text("You need an API key to connect external tools.")
+                        .font(LisnFont.caption())
                         .foregroundColor(LisnColors.textSecondary)
 
                     Button {
@@ -107,11 +208,12 @@ struct GatewaysView: View {
                             }
                         }
                     } label: {
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
+                        HStack(spacing: LisnSpacing.xs) {
+                            Image(systemName: "key.fill")
+                                .font(.system(size: 13, weight: .semibold))
                             Text("Generate API Key")
+                                .font(LisnFont.labelLarge())
                         }
-                        .font(LisnFont.labelLarge())
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, LisnSpacing.sm)
@@ -122,185 +224,157 @@ struct GatewaysView: View {
                 }
                 .padding(LisnSpacing.md)
                 .lisnCardStyle()
-            } else {
-                // Show existing keys
-                ForEach(viewModel.keys) { key in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(key.name)
+            }
+        }
+    }
+
+    // MARK: - Gateway Row
+
+    private func gatewayRow(
+        id: String,
+        name: String,
+        subtitle: String,
+        iconName: String,
+        tint: Color,
+        badge: String? = nil,
+        steps: [SetupStep]?
+    ) -> some View {
+        VStack(spacing: 0) {
+            // Header row
+            Button {
+                guard steps != nil else { return }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    expandedId = expandedId == id ? nil : id
+                }
+            } label: {
+                HStack(spacing: LisnSpacing.sm) {
+                    // Icon
+                    Image(systemName: iconName)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(tint)
+                        .frame(width: 36, height: 36)
+                        .background(tint.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm + 2, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: LisnSpacing.xs) {
+                            Text(name)
                                 .font(LisnFont.labelLarge())
                                 .foregroundColor(LisnColors.textPrimary)
-                            Text(key.keyPrefix + "...")
-                                .font(.system(size: 13, design: .monospaced))
-                                .foregroundColor(LisnColors.textSecondary)
-                            if let lastUsed = key.lastUsedAt {
-                                Text("Last used: \(formatDate(lastUsed))")
-                                    .font(LisnFont.caption())
-                                    .foregroundColor(LisnColors.textTertiary)
+
+                            if let badge {
+                                Text(badge)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(LisnColors.accent)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(LisnColors.accent.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.xs, style: .continuous))
                             }
                         }
 
-                        Spacer()
+                        Text(subtitle)
+                            .font(LisnFont.caption())
+                            .foregroundColor(LisnColors.textTertiary)
+                            .lineLimit(1)
+                    }
 
-                        // Copy from Keychain
-                        Button {
-                            if let saved = KeychainHelper.load(key: "lisnai_api_key") {
-                                UIPasteboard.general.string = saved
-                                copiedKey = true
-                            }
-                        } label: {
-                            Image(systemName: copiedKey ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(copiedKey ? LisnColors.success : LisnColors.accent)
-                        }
-                        .buttonStyle(.plain)
+                    Spacer()
 
-                        // Revoke
-                        Button {
-                            Task { await viewModel.revokeKey(id: key.id) }
-                        } label: {
-                            Image(systemName: "trash")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(LisnColors.error)
+                    if steps != nil {
+                        Image(systemName: expandedId == id ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(LisnColors.textTertiary)
+                    }
+                }
+                .padding(LisnSpacing.md)
+            }
+            .buttonStyle(.plain)
+
+            // Expanded steps
+            if expandedId == id, let steps {
+                VStack(alignment: .leading, spacing: 0) {
+                    Divider()
+                        .padding(.horizontal, LisnSpacing.md)
+
+                    VStack(alignment: .leading, spacing: LisnSpacing.md) {
+                        ForEach(Array(steps.enumerated()), id: \.offset) { idx, step in
+                            stepRow(index: idx + 1, step: step)
                         }
-                        .buttonStyle(.plain)
                     }
                     .padding(LisnSpacing.md)
-                    .lisnCardStyle()
+                    .padding(.top, LisnSpacing.xxs)
                 }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-    }
-
-    // MARK: - Integration Card
-
-    enum IntegrationStatus {
-        case available
-        case comingSoon
-    }
-
-    private func integrationCard(
-        id: String,
-        icon: String,
-        iconColor: Color,
-        name: String,
-        description: String,
-        status: IntegrationStatus,
-        steps: [SetupStep]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-            // Card header
-            HStack(spacing: LisnSpacing.sm) {
-                Circle()
-                    .fill(iconColor.opacity(0.12))
-                    .frame(width: 44, height: 44)
-                    .overlay {
-                        Image(systemName: icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(iconColor)
-                    }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack {
-                        Text(name)
-                            .font(LisnFont.titleSmall())
-                            .foregroundColor(LisnColors.textPrimary)
-
-                        if status == .comingSoon {
-                            Text("Coming Soon")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(LisnColors.warning)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(LisnColors.warning.opacity(0.15))
-                                .clipShape(Capsule())
-                        }
-                    }
-
-                    Text(description)
-                        .font(LisnFont.caption())
-                        .foregroundColor(LisnColors.textSecondary)
-                        .lineLimit(2)
-                }
-
-                Spacer()
-
-                if status == .available {
-                    Image(systemName: expandedIntegration == id ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(LisnColors.textTertiary)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard status == .available else { return }
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    expandedIntegration = expandedIntegration == id ? nil : id
-                }
-            }
-
-            // Expanded setup guide
-            if expandedIntegration == id && status == .available {
-                Divider()
-                    .padding(.vertical, LisnSpacing.xs)
-
-                VStack(alignment: .leading, spacing: LisnSpacing.md) {
-                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                        HStack(alignment: .top, spacing: LisnSpacing.sm) {
-                            Text("\(index + 1)")
-                                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                                .foregroundColor(.white)
-                                .frame(width: 22, height: 22)
-                                .background(LisnColors.accent)
-                                .clipShape(Circle())
-
-                            VStack(alignment: .leading, spacing: LisnSpacing.xs) {
-                                Text(step.title)
-                                    .font(LisnFont.labelLarge())
-                                    .foregroundColor(LisnColors.textPrimary)
-
-                                Text(step.detail)
-                                    .font(LisnFont.caption())
-                                    .foregroundColor(LisnColors.textSecondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-
-                                if let code = step.code {
-                                    codeBlock(code)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .padding(LisnSpacing.md)
         .lisnCardStyle()
+        .padding(.horizontal, LisnSpacing.md)
     }
 
-    // MARK: - Code Block
+    // MARK: - Step Row
 
-    private func codeBlock(_ code: String) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            Text(code)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(Color(red: 0.18, green: 0.20, blue: 0.21))
-                .padding(LisnSpacing.sm)
+    private func stepRow(index: Int, step: SetupStep) -> some View {
+        HStack(alignment: .top, spacing: LisnSpacing.sm) {
+            // Step number
+            Text("\(index)")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundColor(LisnColors.accent)
+                .frame(width: 20, height: 20)
+                .background(LisnColors.accent.opacity(0.1))
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: LisnSpacing.xxs) {
+                Text(step.title)
+                    .font(LisnFont.labelLarge())
+                    .foregroundColor(LisnColors.textPrimary)
+
+                Text(step.detail)
+                    .font(LisnFont.caption())
+                    .foregroundColor(LisnColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let code = step.code {
+                    codeSnippet(code)
+                        .padding(.top, LisnSpacing.xxs)
+                }
+            }
         }
-        .background(Color(red: 0.96, green: 0.94, blue: 0.91))
-        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
-        .overlay(alignment: .topTrailing) {
+    }
+
+    // MARK: - Code Snippet
+
+    private func codeSnippet(_ code: String) -> some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            // Copy button
             Button {
                 UIPasteboard.general.string = code
             } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(LisnColors.textTertiary)
-                    .padding(6)
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 9, weight: .medium))
+                    Text("Copy")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundColor(LisnColors.textTertiary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(code)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(Color(red: 0.25, green: 0.27, blue: 0.29))
+                    .padding(.horizontal, LisnSpacing.sm)
+                    .padding(.bottom, LisnSpacing.sm)
             }
         }
+        .background(LisnColors.bgSecondary)
+        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
     }
 
-    // MARK: - Setup Steps Data
+    // MARK: - Setup Data
 
     struct SetupStep {
         let title: String
@@ -309,77 +383,38 @@ struct GatewaysView: View {
     }
 
     private var claudeSteps: [SetupStep] {
-        let baseURL = "https://backend-test-8pbt.onrender.com"
+        let base = "https://backend-test-8pbt.onrender.com"
         return [
-            SetupStep(
-                title: "Generate an API Key",
-                detail: "Tap 'Generate API Key' above if you haven't already. Copy the key.",
-                code: nil
-            ),
-            SetupStep(
-                title: "Open Claude Desktop Settings",
-                detail: "Go to Settings > Developer > Edit Config, or open the file directly:",
-                code: "~/Library/Application Support/Claude/claude_desktop_config.json"
-            ),
-            SetupStep(
-                title: "Add LisnAI as an MCP Server",
-                detail: "Paste this JSON into the config file. Replace YOUR_API_KEY with your key:",
-                code: """
-                {
-                  "mcpServers": {
-                    "lisnai": {
-                      "type": "http",
-                      "url": "\(baseURL)/mcp",
-                      "headers": {
-                        "Authorization": "Bearer YOUR_API_KEY"
-                      }
-                    }
-                  }
-                }
-                """
-            ),
-            SetupStep(
-                title: "Restart Claude Desktop",
-                detail: "Quit and reopen Claude Desktop. You should see LisnAI tools available: search_memories, chat, get_recordings, create_action.",
-                code: nil
-            ),
+            SetupStep(title: "Copy your API key", detail: "Tap Copy above. You'll paste it in the config.", code: nil),
+            SetupStep(title: "Open config file", detail: "Claude Desktop: Settings > Developer > Edit Config\nClaude Code: edit ~/.claude.json", code: nil),
+            SetupStep(title: "Add the LisnAI server", detail: "Paste this into the mcpServers section:", code: """
+            "lisnai": {
+              "type": "http",
+              "url": "\(base)/mcp",
+              "headers": {
+                "Authorization": "Bearer YOUR_KEY"
+              }
+            }
+            """),
+            SetupStep(title: "Restart & use", detail: "Restart the app. You'll have 4 tools: search_memories, ask_agent, get_recordings, create_action.", code: nil),
         ]
     }
 
     private var cursorSteps: [SetupStep] {
-        let baseURL = "https://backend-test-8pbt.onrender.com"
+        let base = "https://backend-test-8pbt.onrender.com"
         return [
-            SetupStep(
-                title: "Generate an API Key",
-                detail: "Tap 'Generate API Key' above if you haven't already. Copy the key.",
-                code: nil
-            ),
-            SetupStep(
-                title: "Open Cursor Settings",
-                detail: "In Cursor, go to Settings > MCP Servers > Add Server.",
-                code: nil
-            ),
-            SetupStep(
-                title: "Configure the MCP Server",
-                detail: "Add LisnAI with these settings. Replace YOUR_API_KEY:",
-                code: """
-                {
-                  "mcpServers": {
-                    "lisnai": {
-                      "url": "\(baseURL)/mcp",
-                      "headers": {
-                        "Authorization": "Bearer YOUR_API_KEY"
-                      }
-                    }
-                  }
-                }
-                """
-            ),
-            SetupStep(
-                title: "Use in Cursor",
-                detail: "Ask Cursor things like: 'Search my Lisn recordings about the API design discussion' or 'What did I talk about in my last meeting?'",
-                code: nil
-            ),
+            SetupStep(title: "Copy your API key", detail: "Tap Copy above.", code: nil),
+            SetupStep(title: "Open MCP settings", detail: "Cursor > Settings > MCP Servers > Add New.", code: nil),
+            SetupStep(title: "Configure LisnAI", detail: "Add with these settings:", code: """
+            "lisnai": {
+              "type": "http",
+              "url": "\(base)/mcp",
+              "headers": {
+                "Authorization": "Bearer YOUR_KEY"
+              }
+            }
+            """),
+            SetupStep(title: "Use in Cursor", detail: "Ask: \"Search my Lisn recordings about the API design\" or \"What did I discuss in my last meeting?\"", code: nil),
         ]
     }
 
@@ -387,11 +422,9 @@ struct GatewaysView: View {
 
     private func formatDate(_ iso: String) -> String {
         let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: iso) {
-            let relative = RelativeDateTimeFormatter()
-            return relative.localizedString(for: date, relativeTo: Date())
-        }
-        return iso
+        guard let date = formatter.date(from: iso) else { return iso }
+        let rel = RelativeDateTimeFormatter()
+        return rel.localizedString(for: date, relativeTo: Date())
     }
 }
 
@@ -401,13 +434,10 @@ struct GatewaysView: View {
 class GatewaysViewModel: ObservableObject {
     @Published var keys: [ApiKeyListItem] = []
     @Published var isGenerating = false
-    @Published var error: String?
-
-    private let api = APIService.shared
 
     func loadKeys() async {
         do {
-            let response = try await api.getApiKeys()
+            let response = try await APIService.shared.getApiKeys()
             keys = response.keys
         } catch {
             print("[Gateways] Failed to load keys: \(error)")
@@ -417,13 +447,11 @@ class GatewaysViewModel: ObservableObject {
     func generateKey(name: String) async -> String? {
         isGenerating = true
         defer { isGenerating = false }
-
         do {
-            let response = try await api.generateApiKey(name: name)
+            let response = try await APIService.shared.generateApiKey(name: name)
             await loadKeys()
             return response.key
         } catch {
-            self.error = error.localizedDescription
             print("[Gateways] Failed to generate key: \(error)")
             return nil
         }
@@ -431,7 +459,7 @@ class GatewaysViewModel: ObservableObject {
 
     func revokeKey(id: String) async {
         do {
-            _ = try await api.revokeApiKey(keyId: id)
+            _ = try await APIService.shared.revokeApiKey(keyId: id)
             keys.removeAll { $0.id == id }
             KeychainHelper.delete(key: "lisnai_api_key")
         } catch {
@@ -474,8 +502,4 @@ enum KeychainHelper {
         ]
         SecItemDelete(query as CFDictionary)
     }
-}
-
-#Preview {
-    GatewaysView()
 }
