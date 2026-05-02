@@ -254,6 +254,22 @@ struct ActionsView: View {
         .padding(.horizontal, LisnSpacing.xl)
     }
 
+    private var suggestionSectionHeader: String {
+        switch selectedTab {
+        case .active: return "Suggestions"
+        case .commitments: return "Commitments"
+        case .insights: return "Insights"
+        }
+    }
+
+    private var suggestionSectionIcon: String {
+        switch selectedTab {
+        case .active: return "sparkles"
+        case .commitments: return "flag.fill"
+        case .insights: return "lightbulb.fill"
+        }
+    }
+
     private var emptyIcon: String {
         switch selectedTab {
         case .active: return "bolt"
@@ -304,14 +320,22 @@ struct ActionsView: View {
                 }
 
                 // Suggestions (filtered by tab)
-                ForEach(filteredItems) { suggestion in
-                    SuggestionCard(suggestion: suggestion)
-                        .padding(LisnSpacing.md)
-                        .lisnCardStyle()
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            selectedSuggestion = suggestion
+                if !filteredItems.isEmpty {
+                    VStack(alignment: .leading, spacing: LisnSpacing.sm) {
+                        Label(suggestionSectionHeader, systemImage: suggestionSectionIcon)
+                            .lisnSectionHeader()
+                            .padding(.horizontal, LisnSpacing.xxs)
+
+                        ForEach(filteredItems) { suggestion in
+                            SuggestionCard(suggestion: suggestion)
+                                .padding(LisnSpacing.md)
+                                .lisnCardStyle()
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedSuggestion = suggestion
+                                }
                         }
+                    }
                 }
             }
             .padding(.horizontal, LisnSpacing.md)
