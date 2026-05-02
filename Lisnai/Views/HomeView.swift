@@ -311,19 +311,24 @@ struct HomeView: View {
 
             Spacer()
 
-            // Pending Actions Badge
+            // Pending Actions Badge — tap to open Actions tab
             if pendingActionsCount > 0 || pendingSuggestionsCount > 0 {
-                HStack(spacing: LisnSpacing.xxs) {
-                    Image(systemName: "bell.badge.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text("\(pendingActionsCount + pendingSuggestionsCount)")
-                        .font(LisnFont.captionBold())
+                Button {
+                    NotificationCenter.default.post(name: .openActions, object: nil)
+                } label: {
+                    HStack(spacing: LisnSpacing.xxs) {
+                        Image(systemName: "bell.badge.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("\(pendingActionsCount + pendingSuggestionsCount)")
+                            .font(LisnFont.captionBold())
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, LisnSpacing.sm)
+                    .padding(.vertical, LisnSpacing.xs)
+                    .background(LisnColors.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
                 }
-                .foregroundColor(.white)
-                .padding(.horizontal, LisnSpacing.sm)
-                .padding(.vertical, LisnSpacing.xs)
-                .background(LisnColors.accent)
-                .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+                .buttonStyle(.plain)
                 .transition(.scale.combined(with: .opacity))
             }
         }
