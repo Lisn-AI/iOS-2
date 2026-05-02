@@ -751,11 +751,9 @@ class ActionExecutor: ObservableObject {
 
     // MARK: - Notes
 
-    /// Create a note — opens share sheet since there's no direct Apple Notes API
-    @Published var pendingNoteText: String?
-    @Published var pendingNoteAction: PendingAction?
-    @Published var showNoteShareSheet = false
-
+    /// Create a note and save directly to Apple Notes via UIActivityViewController.
+    /// Shares a .txt file (more reliable with Notes than raw String).
+    /// Presented from the top UIKit view controller to bypass SwiftUI sheet-nesting issues.
     func createNote(from action: PendingAction) async -> ActionExecutionResult {
         let title = action.params?["title"]?.stringValue ?? ""
         let content = extractParam(from: action, keys: ["content", "text", "body", "notes"]) ?? ""
@@ -768,33 +766,98 @@ class ActionExecutor: ObservableObject {
             )
         }
 
-        // Build the note text
+        // Build note text — title on first line, blank line, then body
         var noteText = ""
-        if !title.isEmpty {
-            noteText += title + "\n\n"
-        }
+        if !title.isEmpty { noteText += title + "\n\n" }
         noteText += content
 
-        // Store the note text and action — defer completion until share sheet is dismissed
-        pendingNoteText = noteText
-        pendingNoteAction = action
-        showNoteShareSheet = true
+        // Write to a .txt temp file — Notes imports .txt files directly into Quick Notes
+        // This is more reliable than passing a raw String to UIActivityViewController
+        let safeName = title.isEmpty ? "Note" : String(
+            title
+                .components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|"))
+                .joined(separator: "_")
+                .prefix(50)
+        )
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(safeName)
+            .appendingPathExtension("txt")
+
+        do {
+            try noteText.write(to: tempURL, atomically: true, encoding: .utf8)
+        } catch {
+            // Fallback: present with raw string if file write fails
+            print("[ActionExecutor] Could not write temp note file: \(error)")
+        }
+
+        // Wait for any sheet dismissal animations to complete before presenting UIKit VC.
+        // Without this, topVC.present() silently fails when called mid-animation.
+        try? await Task.sleep(nanoseconds: 600_000_000) // 600ms
+
+        let presented = await MainActor.run { [tempURL, noteText] () -> Bool in
+            guard let windowScene = UIApplication.shared.connectedScenes
+                    .compactMap({ $0 as? UIWindowScene })
+                    .first(where: { $0.activationState == .foregroundActive }),
+                  let window = windowScene.windows.first(where: { $0.isKeyWindow }),
+                  let rootVC = window.rootViewController else {
+                return false
+            }
+
+            // Walk to topmost non-dismissing view controller
+            var topVC: UIViewController = rootVC
+            while let next = topVC.presentedViewController, !next.isBeingDismissed {
+                topVC = next
+            }
+
+            // Use the .txt file if it exists, fall back to raw string
+            let activityItems: [Any]
+            if FileManager.default.fileExists(atPath: tempURL.path) {
+                activityItems = [tempURL]
+            } else {
+                activityItems = [noteText]
+            }
+
+            let activityVC = UIActivityViewController(
+                activityItems: activityItems,
+                applicationActivities: nil
+            )
+
+            activityVC.completionWithItemsHandler = { [weak self] _, completed, _, _ in
+                // Clean up temp file
+                try? FileManager.default.removeItem(at: tempURL)
+                if completed {
+                    Task { await self?.completeActionOnBackend(action) }
+                }
+            }
+
+            // iPad popover source (prevents crash on iPad)
+            if let popover = activityVC.popoverPresentationController {
+                popover.sourceView = topVC.view
+                popover.sourceRect = CGRect(
+                    x: topVC.view.bounds.midX,
+                    y: topVC.view.bounds.midY,
+                    width: 0, height: 0
+                )
+                popover.permittedArrowDirections = []
+            }
+
+            topVC.present(activityVC, animated: true)
+            return true
+        }
+
+        guard presented else {
+            return ActionExecutionResult(
+                success: false,
+                message: "Could not open share sheet",
+                nativeItemId: nil
+            )
+        }
 
         return ActionExecutionResult(
             success: true,
-            message: "Note ready — choose where to save it",
+            message: "Tap 'Notes' in the share sheet to save",
             nativeItemId: nil
         )
-    }
-
-    /// Complete or cancel note action after share sheet is dismissed
-    func completeNoteAction(shared: Bool) async {
-        if shared, let action = pendingNoteAction {
-            await completeActionOnBackend(action)
-        }
-        pendingNoteAction = nil
-        pendingNoteText = nil
-        showNoteShareSheet = false
     }
 
     // MARK: - Deep Link Handling
@@ -852,6 +915,8 @@ class ActionExecutor: ObservableObject {
                 error: nil
             )
             _ = try await api.completeAction(actionId: action.id, result: result)
+            // Notify Actions page to refresh (removes completed actions)
+            NotificationCenter.default.post(name: .actionCompleted, object: nil, userInfo: ["actionId": action.id])
         } catch {
             print("Failed to mark action as completed: \(error.localizedDescription)")
         }

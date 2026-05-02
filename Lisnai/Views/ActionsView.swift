@@ -19,6 +19,7 @@ struct ActionsView: View {
 
     enum ActionTab: String, CaseIterable {
         case active = "Active"
+        case commitments = "Commitments"
         case insights = "Insights"
     }
 
@@ -139,27 +140,32 @@ struct ActionsView: View {
             } message: {
                 Text(successMessage)
             }
+            // Sync: refresh when an action is completed from chat
+            .onReceive(NotificationCenter.default.publisher(for: .actionCompleted)) { notification in
+                if let actionId = notification.userInfo?["actionId"] as? String {
+                    viewModel.pendingActions.removeAll { $0.id == actionId }
+                }
+            }
         }
     }
 
     // MARK: - Filtered Items
 
     private var filteredItems: [ProactiveSuggestion] {
-        let targetCategory = selectedTab == .active ? "active" : "insight"
-        // Filter suggestions by category from the unified list
-        return viewModel.suggestions.filter { suggestion in
-            // Default category mapping if backend hasn't set it yet
-            let cat = suggestionCategory(suggestion)
-            return cat == targetCategory
+        switch selectedTab {
+        case .active:
+            return viewModel.suggestions.filter { suggestion in
+                suggestion.type != "commitment" &&
+                suggestion.type != "pattern_insight" &&
+                suggestion.type != "connection_prompt"
+            }
+        case .commitments:
+            return viewModel.suggestions.filter { $0.type == "commitment" }
+        case .insights:
+            return viewModel.suggestions.filter {
+                $0.type == "pattern_insight" || $0.type == "connection_prompt"
+            }
         }
-    }
-
-    private func suggestionCategory(_ suggestion: ProactiveSuggestion) -> String {
-        // Pattern insights and connection prompts are "insight", everything else is "active"
-        if suggestion.type == "pattern_insight" || suggestion.type == "connection_prompt" {
-            return "insight"
-        }
-        return "active"
     }
 
     // MARK: - Action Result Handler
@@ -230,24 +236,46 @@ struct ActionsView: View {
                 .fill(LisnColors.bgSecondary)
                 .frame(width: 80, height: 80)
                 .overlay {
-                    Image(systemName: selectedTab == .active ? "bolt" : "lightbulb")
+                    Image(systemName: emptyIcon)
                         .font(.system(size: 32, weight: .medium))
                         .foregroundColor(LisnColors.accent)
                 }
 
-            Text(selectedTab == .active ? "All Caught Up" : "No Insights Yet")
+            Text(emptyTitle)
                 .font(LisnFont.titleLarge())
                 .foregroundColor(LisnColors.textPrimary)
 
-            Text(selectedTab == .active
-                 ? "Actions from your conversations will appear here"
-                 : "Pattern insights and connection prompts will appear here")
+            Text(emptySubtitle)
                 .font(LisnFont.bodyMedium())
                 .foregroundColor(LisnColors.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, LisnSpacing.xl)
+    }
+
+    private var emptyIcon: String {
+        switch selectedTab {
+        case .active: return "bolt"
+        case .commitments: return "flag"
+        case .insights: return "lightbulb"
+        }
+    }
+
+    private var emptyTitle: String {
+        switch selectedTab {
+        case .active: return "All Caught Up"
+        case .commitments: return "No Commitments"
+        case .insights: return "No Insights Yet"
+        }
+    }
+
+    private var emptySubtitle: String {
+        switch selectedTab {
+        case .active: return "Proactive suggestions from your conversations will appear here"
+        case .commitments: return "Promises and follow-ups detected in your recordings will appear here"
+        case .insights: return "Pattern insights and connection prompts will appear here"
+        }
     }
 
     // MARK: - Content List

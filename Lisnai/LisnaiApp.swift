@@ -202,6 +202,7 @@ extension Notification.Name {
     static let openChat = Notification.Name("openChat")
     static let chatWithContext = Notification.Name("chatWithContext")
     static let showPaywall = Notification.Name("showPaywall")
+    static let actionCompleted = Notification.Name("actionCompleted")
 }
 
 @main
