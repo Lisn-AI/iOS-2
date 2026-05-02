@@ -328,7 +328,7 @@ struct GatewaysView: View {
                 {
                   "mcpServers": {
                     "lisnai": {
-                      "type": "url",
+                      "type": "http",
                       "url": "\(baseURL)/mcp",
                       "headers": {
                         "Authorization": "Bearer YOUR_API_KEY"
