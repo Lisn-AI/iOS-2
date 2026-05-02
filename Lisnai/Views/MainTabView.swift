@@ -10,11 +10,9 @@ struct MainTabView: View {
     @State private var selectedTab: Tab = .home
     @State private var showPaywall = false
     @State private var showBriefings = false
-    @State private var showCommitments = false
     @State private var showSettings = false
     @State private var showSettingsPage = false
     @State private var showMemorySearch = false
-    @State private var showPermissionRules = false
     @StateObject private var actionsViewModel = ActionsViewModel()
     @StateObject private var keyboardObserver = KeyboardObserver()
     // Live suggestion action state
@@ -115,9 +113,6 @@ struct MainTabView: View {
         .sheet(isPresented: $showBriefings) {
             BriefingsView()
         }
-        .sheet(isPresented: $showCommitments) {
-            CommitmentsView()
-        }
         .sheet(isPresented: $showSettingsPage) {
             NavigationStack {
                 SettingsView()
@@ -125,9 +120,6 @@ struct MainTabView: View {
         }
         .sheet(isPresented: $showMemorySearch) {
             MemorySearchView()
-        }
-        .sheet(isPresented: $showPermissionRules) {
-            PermissionRulesView()
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()
@@ -142,7 +134,7 @@ struct MainTabView: View {
             showBriefings = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .openCommitments)) { _ in
-            showCommitments = true
+            selectedTab = .actions // Commitments now shown in Actions tab
         }
         .onReceive(NotificationCenter.default.publisher(for: .openActions)) { _ in
             selectedTab = .actions
@@ -309,14 +301,6 @@ struct MainTabView: View {
 
                 sideMenuItem(icon: "sun.haze", title: "Daily Briefings") {
                     closeThen { showBriefings = true }
-                }
-
-                sideMenuItem(icon: "checkmark.seal", title: "Commitments") {
-                    closeThen { showCommitments = true }
-                }
-
-                sideMenuItem(icon: "lock.shield", title: "Permission Rules") {
-                    closeThen { showPermissionRules = true }
                 }
 
                 sideMenuItem(icon: "bolt", title: "Actions") {

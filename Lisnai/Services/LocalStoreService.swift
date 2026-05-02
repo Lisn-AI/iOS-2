@@ -32,31 +32,36 @@ class LocalStoreService {
         print("[LocalStore] Memory saved — id=\(memory.serverMemoryId ?? "local"), title=\(memory.title ?? "nil"), hasEmbedding=\(memory.embeddingData != nil)")
     }
 
-    // MARK: - Commitment Storage
+    // MARK: - Commitment Storage (writes to LocalSuggestion with type='commitment')
 
-    /// Save commitments fetched from API to local SwiftData
+    /// Save commitments as LocalSuggestion records (unified pipeline)
     func storeCommitments(_ commitments: [Commitment], context: ModelContext) {
         for commitment in commitments {
-            // Check if already stored
             let id = commitment.id
-            let predicate = #Predicate<LocalCommitment> { $0.serverCommitmentId == id }
+            let predicate = #Predicate<LocalSuggestion> { $0.serverSuggestionId == id }
             let descriptor = FetchDescriptor(predicate: predicate)
             let existing = (try? context.fetch(descriptor))?.first
 
             if existing != nil { continue }
 
-            let local = LocalCommitment(
-                serverCommitmentId: commitment.id,
-                commitmentDescription: commitment.description,
-                type: commitment.type,
+            let local = LocalSuggestion(
+                serverSuggestionId: commitment.id,
+                type: "commitment",
+                title: String(commitment.description.prefix(50)),
+                body: commitment.description,
+                confidence: 0.75,
+                reasoning: "Commitment detected",
+                status: commitment.status,
+                isSynced: true,
+                category: "active",
+                source: "commitment",
+                expiryRule: commitment.dueDate != nil ? "commitment_due_buffer" : "task_reminder_48h",
                 person: commitment.person,
                 dueDate: ISO8601DateFormatter().date(from: commitment.dueDate ?? ""),
-                urgency: commitment.urgency,
-                status: commitment.status,
-                isSynced: true
+                urgency: commitment.urgency
             )
             context.insert(local)
-            print("[LocalStore] Commitment saved — id=\(local.serverCommitmentId ?? "local"), type=\(local.type)")
+            print("[LocalStore] Commitment→Suggestion saved — id=\(id), type=commitment")
         }
         try? context.save()
     }
