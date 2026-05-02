@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var showBriefings = false
     @State private var showCommitments = false
     @State private var showPermissionRules = false
+    @State private var showGateways = false
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
     @State private var showCloudEnableConfirmation = false
@@ -88,6 +89,16 @@ struct SettingsView: View {
                 Button(action: { showCommitments = true }) {
                     HStack {
                         Label("Commitments", systemImage: "checkmark.seal")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(LisnColors.textSecondary)
+                    }
+                }
+                .listRowBackground(LisnColors.bgElevated)
+
+                Button(action: { showGateways = true }) {
+                    HStack {
+                        Label("Gateways", systemImage: "network")
                         Spacer()
                         Image(systemName: "chevron.right")
                             .foregroundColor(LisnColors.textSecondary)
@@ -403,6 +414,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showCommitments) {
             CommitmentsView()
+        }
+        .sheet(isPresented: $showGateways) {
+            GatewaysView()
         }
         .sheet(isPresented: $showPermissionRules) {
             PermissionRulesView()

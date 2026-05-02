@@ -13,6 +13,7 @@ struct MainTabView: View {
     @State private var showSettings = false
     @State private var showSettingsPage = false
     @State private var showMemorySearch = false
+    @State private var showGateways = false
     @StateObject private var actionsViewModel = ActionsViewModel()
     @StateObject private var keyboardObserver = KeyboardObserver()
     // Live suggestion action state
@@ -120,6 +121,9 @@ struct MainTabView: View {
         }
         .sheet(isPresented: $showMemorySearch) {
             MemorySearchView()
+        }
+        .sheet(isPresented: $showGateways) {
+            GatewaysView()
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()
@@ -301,6 +305,10 @@ struct MainTabView: View {
 
                 sideMenuItem(icon: "sun.haze", title: "Daily Briefings") {
                     closeThen { showBriefings = true }
+                }
+
+                sideMenuItem(icon: "network", title: "Gateways") {
+                    closeThen { showGateways = true }
                 }
 
                 sideMenuItem(icon: "bolt", title: "Actions") {

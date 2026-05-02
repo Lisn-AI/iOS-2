@@ -368,6 +368,34 @@ class APIService: ObservableObject {
         return try await execute(request)
     }
 
+    // MARK: - API Keys (Gateway)
+
+    /// Generate a new API key for MCP gateway access
+    func generateApiKey(name: String) async throws -> ApiKeyResponse {
+        let body = ["name": name]
+        let request = try await createRequest(
+            endpoint: "/api/keys/generate",
+            method: "POST",
+            body: try encoder.encode(body)
+        )
+        return try await execute(request)
+    }
+
+    /// List active API keys
+    func getApiKeys() async throws -> ApiKeyListResponse {
+        let request = try await createRequest(endpoint: "/api/keys")
+        return try await execute(request)
+    }
+
+    /// Revoke an API key
+    func revokeApiKey(keyId: String) async throws -> ApiKeyRevokeResponse {
+        let request = try await createRequest(
+            endpoint: "/api/keys/\(keyId)",
+            method: "DELETE"
+        )
+        return try await execute(request)
+    }
+
     // MARK: - Permissions
 
     /// Get all permission rules
@@ -1195,6 +1223,33 @@ struct SuggestionAcceptResponse: Codable {
 }
 
 struct EmptyResponse: Codable {}
+
+// MARK: - API Keys (Gateway)
+
+struct ApiKeyResponse: Codable {
+    let id: String
+    let name: String
+    let key: String  // Raw key — only returned on generation
+    let keyPrefix: String
+    let createdAt: String
+}
+
+struct ApiKeyListItem: Codable, Identifiable {
+    let id: String
+    let name: String
+    let keyPrefix: String
+    let lastUsedAt: String?
+    let createdAt: String
+}
+
+struct ApiKeyListResponse: Codable {
+    let keys: [ApiKeyListItem]
+}
+
+struct ApiKeyRevokeResponse: Codable {
+    let revoked: Bool
+    let id: String
+}
 
 // MARK: - Permission Scope
 
