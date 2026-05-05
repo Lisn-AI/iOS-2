@@ -39,6 +39,15 @@ struct GatewaysView: View {
                         )
 
                         gatewayRow(
+                            id: "claude-web",
+                            name: "Claude Web (claude.ai)",
+                            subtitle: "Use your Lisn memory directly in claude.ai conversations",
+                            iconName: "globe",
+                            tint: Color(red: 0.82, green: 0.55, blue: 0.24),
+                            steps: claudeWebSteps
+                        )
+
+                        gatewayRow(
                             id: "cursor",
                             name: "Cursor IDE",
                             subtitle: "Access your memory corpus while coding",
@@ -397,6 +406,16 @@ struct GatewaysView: View {
             }
             """),
             SetupStep(title: "Restart & use", detail: "Restart the app. You'll have 4 tools: search_memories, ask_agent, get_recordings, create_action.", code: nil),
+        ]
+    }
+
+    private var claudeWebSteps: [SetupStep] {
+        let base = "https://backend-test-8pbt.onrender.com"
+        return [
+            SetupStep(title: "Open Claude Web settings", detail: "Go to claude.ai > click your profile > Settings > Connectors.", code: nil),
+            SetupStep(title: "Add custom connector", detail: "Scroll down and tap 'Add custom connector'. Enter this URL:", code: "\(base)/mcp"),
+            SetupStep(title: "Authenticate", detail: "Claude will open a login page. Sign in with your LisnAI email and password. No API key needed — OAuth handles it automatically.", code: nil),
+            SetupStep(title: "Use in conversations", detail: "Start a new chat. Click the paperclip icon to see LisnAI resources. Ask Claude to search your memories, review recordings, or create actions on your iPhone.", code: nil),
         ]
     }
 
