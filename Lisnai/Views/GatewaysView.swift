@@ -39,21 +39,31 @@ struct GatewaysView: View {
                         )
 
                         gatewayRow(
-                            id: "claude-web",
-                            name: "Claude Web (claude.ai)",
-                            subtitle: "Use your Lisn memory directly in claude.ai conversations",
-                            iconName: "globe",
-                            tint: Color(red: 0.82, green: 0.55, blue: 0.24),
-                            steps: claudeWebSteps
-                        )
-
-                        gatewayRow(
                             id: "cursor",
                             name: "Cursor IDE",
                             subtitle: "Access your memory corpus while coding",
                             iconName: "cursorarrow.rays",
                             tint: Color(red: 0.22, green: 0.46, blue: 0.82),
                             steps: cursorSteps
+                        )
+
+                        gatewayRow(
+                            id: "chatgpt",
+                            name: "ChatGPT",
+                            subtitle: "Use your Lisn memory in ChatGPT conversations",
+                            iconName: "sparkle",
+                            tint: Color(red: 0.16, green: 0.65, blue: 0.53),
+                            steps: chatGPTSteps
+                        )
+
+                        gatewayRow(
+                            id: "claude-web",
+                            name: "Claude Web (claude.ai)",
+                            subtitle: "Use your Lisn memory directly in claude.ai",
+                            iconName: "globe",
+                            tint: Color(red: 0.82, green: 0.55, blue: 0.24),
+                            badge: "Coming Soon",
+                            steps: nil
                         )
 
                         gatewayRow(
@@ -409,16 +419,6 @@ struct GatewaysView: View {
         ]
     }
 
-    private var claudeWebSteps: [SetupStep] {
-        let base = "https://backend-test-8pbt.onrender.com"
-        return [
-            SetupStep(title: "Open Claude Web settings", detail: "Go to claude.ai > click your profile > Settings > Connectors.", code: nil),
-            SetupStep(title: "Add custom connector", detail: "Scroll down and tap 'Add custom connector'. Enter this URL:", code: "\(base)/mcp"),
-            SetupStep(title: "Authenticate", detail: "Claude will open a login page. Sign in with your LisnAI email and password. No API key needed — OAuth handles it automatically.", code: nil),
-            SetupStep(title: "Use in conversations", detail: "Start a new chat. Click the paperclip icon to see LisnAI resources. Ask Claude to search your memories, review recordings, or create actions on your iPhone.", code: nil),
-        ]
-    }
-
     private var cursorSteps: [SetupStep] {
         let base = "https://backend-test-8pbt.onrender.com"
         return [
@@ -434,6 +434,16 @@ struct GatewaysView: View {
             }
             """),
             SetupStep(title: "Use in Cursor", detail: "Ask: \"Search my Lisn recordings about the API design\" or \"What did I discuss in my last meeting?\"", code: nil),
+        ]
+    }
+
+    private var chatGPTSteps: [SetupStep] {
+        let base = "https://backend-test-8pbt.onrender.com"
+        return [
+            SetupStep(title: "Enable Developer Mode", detail: "In ChatGPT, go to Settings > Apps & Connectors > Advanced settings > turn on Developer mode.", code: nil),
+            SetupStep(title: "Create a connector", detail: "Go to Settings > Connectors > click Create. Enter this URL:", code: "\(base)/mcp"),
+            SetupStep(title: "Add authentication", detail: "In the connector settings, add a custom header for auth. Use your API key from above:", code: "Authorization: Bearer YOUR_KEY"),
+            SetupStep(title: "Use in ChatGPT", detail: "Open a new chat, click + > More > select your LisnAI connector. Ask ChatGPT to search your memories or create actions.", code: nil),
         ]
     }
 
