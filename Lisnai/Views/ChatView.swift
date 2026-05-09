@@ -605,6 +605,7 @@ struct ToolCallsSection: View {
     let toolCalls: [InlineToolCall]
     var onStatusChange: ((String, ToolCallStatus) -> Void)?
     @State private var expanded = false
+    @State private var executingAll = false
 
     private var completedCalls: [InlineToolCall] {
         toolCalls.filter { $0.status == .completed }
@@ -612,6 +613,10 @@ struct ToolCallsSection: View {
 
     private var activeCalls: [InlineToolCall] {
         toolCalls.filter { $0.status != .completed }
+    }
+
+    private var reviewableCalls: [InlineToolCall] {
+        toolCalls.filter { $0.status == .permissionRequired }
     }
 
     /// Show collapsed summary when there are 3+ completed tool calls
@@ -624,6 +629,63 @@ struct ToolCallsSection: View {
             // Always show active (non-completed) tool calls
             ForEach(activeCalls) { toolCall in
                 ActionSnippetView(toolCall: toolCall, onStatusChange: onStatusChange)
+            }
+
+            // Batch Execute All / Skip All for 2+ reviewable actions
+            if reviewableCalls.count >= 2 {
+                HStack(spacing: LisnSpacing.sm) {
+                    Button {
+                        executingAll = true
+                        Task {
+                            for tc in reviewableCalls {
+                                let action = tc.toPendingAction()
+                                let result = await ActionExecutor.shared.executeAction(action)
+                                if result.success {
+                                    onStatusChange?(tc.id, .completed)
+                                } else {
+                                    onStatusChange?(tc.id, .failed)
+                                }
+                            }
+                            executingAll = false
+                            LisnHaptics.success()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            if executingAll {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 13))
+                            }
+                            Text("Execute All")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(LisnColors.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
+                    }
+                    .disabled(executingAll)
+                    .buttonStyle(.plain)
+
+                    Button {
+                        for tc in reviewableCalls {
+                            onStatusChange?(tc.id, .completed)
+                        }
+                    } label: {
+                        Text("Skip All")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(LisnColors.textSecondary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(LisnColors.bgSecondary)
+                            .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, LisnSpacing.xxs)
             }
 
             if shouldCollapse && !expanded {
