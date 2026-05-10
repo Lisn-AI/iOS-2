@@ -319,23 +319,38 @@ struct HomeView: View {
 
     @ViewBuilder
     private func recordingCard(recording: Recording, isExpanded: Bool) -> some View {
-        VStack(alignment: .leading, spacing: isExpanded ? LisnSpacing.md : 0) {
-            // Header (always visible)
+        VStack(alignment: .leading, spacing: isExpanded ? LisnSpacing.lg : LisnSpacing.xs) {
+            // Header
             HStack(spacing: LisnSpacing.sm) {
+                // Icon
                 Image(systemName: "waveform")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundColor(LisnColors.accent)
+                    .frame(width: 32, height: 32)
+                    .background(LisnColors.accent.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
                     Text(recording.title ?? "Recording at \(recording.date.formatted(date: .omitted, time: .shortened))")
-                        .font(LisnFont.labelLarge())
+                        .font(LisnFont.titleSmall())
                         .foregroundColor(LisnColors.textPrimary)
-                        .lineLimit(isExpanded ? nil : 1)
+                        .lineLimit(isExpanded ? 3 : 1)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     HStack(spacing: LisnSpacing.xs) {
                         Text(formatDuration(recording.duration))
                             .font(LisnFont.caption())
                             .foregroundColor(LisnColors.textTertiary)
+
+                        if !isExpanded {
+                            Text("\u{2022}")
+                                .font(LisnFont.caption())
+                                .foregroundColor(LisnColors.textTertiary)
+
+                            Text(recording.date.formatted(date: .omitted, time: .shortened))
+                                .font(LisnFont.caption())
+                                .foregroundColor(LisnColors.textTertiary)
+                        }
 
                         if recording.title == nil {
                             HStack(spacing: 4) {
@@ -360,6 +375,9 @@ struct HomeView: View {
 
             // Expanded content
             if isExpanded {
+                Divider()
+                    .padding(.vertical, LisnSpacing.xxs)
+
                 if let transcript = recording.transcription?.text, !transcript.isEmpty {
                     TranscriptionCard(transcription: transcript, duration: formatDuration(recording.duration))
                 }
@@ -378,8 +396,8 @@ struct HomeView: View {
                             .markdownTheme(.lisnContent)
                     }
                     .padding(LisnSpacing.md)
-                    .background(LisnColors.bgElevated)
-                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
+                    .background(LisnColors.bgSecondary.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
                 }
 
                 if let insight = recording.insight {
@@ -387,7 +405,7 @@ struct HomeView: View {
                 }
             }
         }
-        .padding(isExpanded ? LisnSpacing.md : LisnSpacing.sm)
+        .padding(isExpanded ? LisnSpacing.lg : LisnSpacing.md)
         .background(LisnColors.bgElevated)
         .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
         .shadow(
