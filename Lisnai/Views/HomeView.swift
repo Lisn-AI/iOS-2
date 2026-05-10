@@ -29,12 +29,16 @@ struct HomeView: View {
         recentRecordings.filter { sessionRecordingIds.contains($0.id) }
     }
 
-    /// Whether we have results to show (single recording result OR concurrent session recordings)
+    /// Whether we have results to show
     private var hasResults: Bool {
-        !recordingManager.transcription.isEmpty && !isRecording && !recordingManager.isProcessing && !dismissedResults
+        guard !isRecording && !dismissedResults else { return false }
+        // Show results if: session has recordings OR there's an active transcript OR background sessions exist
+        return !sessionRecordings.isEmpty
+            || !recordingManager.transcription.isEmpty
+            || recordingManager.backgroundProcessingCount > 0
     }
 
-    /// Whether to show stacked cards (multiple concurrent recordings in this session)
+    /// Whether to show stacked cards (multiple recordings in this session)
     private var showStackedCards: Bool {
         sessionRecordings.count > 1
     }
@@ -275,8 +279,11 @@ struct HomeView: View {
                                     LisnHaptics.light()
                                 }
                         }
-                    } else {
-                        // Single recording — show classic layout (transcript + summary + insight)
+                    } else if let recording = sessionRecordings.first {
+                        // Single session recording — show from SwiftData
+                        recordingCard(recording: recording, isExpanded: true)
+                    } else if !recordingManager.transcription.isEmpty {
+                        // Fallback: show from recordingManager (still processing, not yet in SwiftData)
                         TranscriptionCard(
                             transcription: recordingManager.transcription,
                             duration: recordingManager.recordingDuration
@@ -289,6 +296,16 @@ struct HomeView: View {
                         if let latestInsight = recentRecordings.first?.insight {
                             InsightCard(insight: latestInsight)
                         }
+                    } else if recordingManager.backgroundProcessingCount > 0 {
+                        // Background sessions processing but nothing in SwiftData yet
+                        VStack(spacing: LisnSpacing.sm) {
+                            ProgressView()
+                            Text("Processing your recording...")
+                                .font(LisnFont.bodyMedium())
+                                .foregroundColor(LisnColors.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, LisnSpacing.xxl)
                     }
                 }
                 .padding(.horizontal, LisnSpacing.lg)
