@@ -987,6 +987,7 @@ class RecordingManager: NSObject, ObservableObject {
                 do {
                     try context.save()
                     savedRecording = recording
+                    NotificationCenter.default.post(name: .recordingSaved, object: nil, userInfo: ["recordingId": recording.id.uuidString])
                     print("[SingleChunk] Phase 2: Recording saved with transcript (title pending)")
                 } catch {
                     print("[SingleChunk] Phase 2: Initial save failed: \(error.localizedDescription)")
@@ -1284,6 +1285,7 @@ class RecordingManager: NSObject, ObservableObject {
             do {
                 try context.save()
                 savedRecording = recording
+                NotificationCenter.default.post(name: .recordingSaved, object: nil, userInfo: ["recordingId": recording.id.uuidString])
                 print("[Chunk] Phase 2: Recording saved with transcript (title pending)")
             } catch {
                 print("[Chunk] Phase 2: Initial save failed: \(error.localizedDescription)")

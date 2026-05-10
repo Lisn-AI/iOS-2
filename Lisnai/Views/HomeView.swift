@@ -21,17 +21,22 @@ struct HomeView: View {
     @State private var dismissedResults = false
     @State private var showDiscardAlert = false
     @State private var expandedRecordingId: UUID? // tracks which card is expanded
+    @State private var sessionRecordingIds: [UUID] = [] // recordings made THIS app session
     @Query(sort: \Recording.createdAt, order: .reverse) private var recentRecordings: [Recording]
 
-    /// Today's recordings for the stacked card display
-    private var todayRecordings: [Recording] {
-        let startOfDay = Calendar.current.startOfDay(for: Date())
-        return recentRecordings.filter { $0.date >= startOfDay }
+    /// Recordings made in this app session only (not from history)
+    private var sessionRecordings: [Recording] {
+        recentRecordings.filter { sessionRecordingIds.contains($0.id) }
     }
 
-    /// Whether we have results to show
+    /// Whether we have results to show (single recording result OR concurrent session recordings)
     private var hasResults: Bool {
-        (!recordingManager.transcription.isEmpty || !todayRecordings.isEmpty) && !isRecording && !recordingManager.isProcessing && !dismissedResults
+        !recordingManager.transcription.isEmpty && !isRecording && !recordingManager.isProcessing && !dismissedResults
+    }
+
+    /// Whether to show stacked cards (multiple concurrent recordings in this session)
+    private var showStackedCards: Bool {
+        sessionRecordings.count > 1
     }
 
     var body: some View {
@@ -113,6 +118,13 @@ struct HomeView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ShowDiscardConfirmation"))) { _ in
             showDiscardAlert = true
+        }
+        // Track recordings made in this session for stacked card display
+        .onReceive(NotificationCenter.default.publisher(for: .recordingSaved)) { notification in
+            if let idString = notification.userInfo?["recordingId"] as? String,
+               let id = UUID(uuidString: idString) {
+                sessionRecordingIds.append(id)
+            }
         }
         .sheet(isPresented: $showMemorySearch) {
             MemorySearchView()
@@ -215,23 +227,13 @@ struct HomeView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
 
-            // Stacked recording cards
+            // Scrollable results
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: LisnSpacing.sm) {
-                    if todayRecordings.isEmpty {
-                        // Fallback: show from recordingManager (processing not yet saved)
-                        if !recordingManager.transcription.isEmpty {
-                            TranscriptionCard(
-                                transcription: recordingManager.transcription,
-                                duration: recordingManager.recordingDuration
-                            )
-                            if !recordingManager.summary.isEmpty {
-                                summaryCard
-                            }
-                        }
-                    } else {
-                        ForEach(todayRecordings) { recording in
-                            let isExpanded = expandedRecordingId == recording.id || (expandedRecordingId == nil && recording.id == todayRecordings.first?.id)
+                VStack(spacing: LisnSpacing.md) {
+                    if showStackedCards {
+                        // Multiple concurrent recordings — show stacked cards
+                        ForEach(sessionRecordings) { recording in
+                            let isExpanded = expandedRecordingId == recording.id || (expandedRecordingId == nil && recording.id == sessionRecordings.first?.id)
 
                             recordingCard(recording: recording, isExpanded: isExpanded)
                                 .onTapGesture {
@@ -241,6 +243,20 @@ struct HomeView: View {
                                     }
                                     LisnHaptics.light()
                                 }
+                        }
+                    } else {
+                        // Single recording — show classic layout (transcript + summary + insight)
+                        TranscriptionCard(
+                            transcription: recordingManager.transcription,
+                            duration: recordingManager.recordingDuration
+                        )
+
+                        if !recordingManager.summary.isEmpty {
+                            summaryCard
+                        }
+
+                        if let latestInsight = recentRecordings.first?.insight {
+                            InsightCard(insight: latestInsight)
                         }
                     }
                 }

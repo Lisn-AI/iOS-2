@@ -203,6 +203,7 @@ extension Notification.Name {
     static let chatWithContext = Notification.Name("chatWithContext")
     static let showPaywall = Notification.Name("showPaywall")
     static let actionCompleted = Notification.Name("actionCompleted")
+    static let recordingSaved = Notification.Name("recordingSaved")
 }
 
 @main
@@ -282,7 +283,7 @@ struct LisnaiApp: App {
                         .transition(.opacity)
                         .zIndex(1)
                         .onAppear {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                                 withAnimation(.easeOut(duration: 0.5)) {
                                     showSplash = false
                                 }
