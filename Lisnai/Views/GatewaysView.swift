@@ -10,74 +10,69 @@ struct GatewaysView: View {
     @State private var justCopied = false
     @Environment(\.dismiss) private var dismiss
 
+    private let mcpURL = "https://api.lisnai.com/mcp"
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 0) {
-                    // Hero section
+                VStack(spacing: LisnSpacing.xl) {
+                    // Hero
                     heroSection
-                        .padding(.bottom, LisnSpacing.xl)
+                        .padding(.top, LisnSpacing.lg)
 
                     // API Key
                     apiKeySection
-                        .padding(.horizontal, LisnSpacing.md)
-                        .padding(.bottom, LisnSpacing.lg)
 
                     // Integrations
-                    VStack(alignment: .leading, spacing: LisnSpacing.sm) {
+                    VStack(alignment: .leading, spacing: LisnSpacing.md) {
                         Text("INTEGRATIONS")
                             .lisnSectionHeader()
-                            .padding(.horizontal, LisnSpacing.md + LisnSpacing.xxs)
+                            .padding(.horizontal, LisnSpacing.xxs)
 
-                        gatewayRow(
-                            id: "claude",
+                        gatewayCard(
+                            id: "claude-code",
+                            logo: "claude-logo",
                             name: "Claude Desktop & Code",
-                            subtitle: "Search memories, chat with recordings, create actions",
-                            iconName: "wand.and.stars",
-                            tint: Color(red: 0.55, green: 0.36, blue: 0.82),
-                            steps: claudeSteps
+                            description: "Search memories, chat with recordings, create reminders — all from Claude.",
+                            steps: claudeCodeSteps
                         )
 
-                        gatewayRow(
-                            id: "cursor",
-                            name: "Cursor IDE",
-                            subtitle: "Access your memory corpus while coding",
-                            iconName: "cursorarrow.rays",
-                            tint: Color(red: 0.22, green: 0.46, blue: 0.82),
-                            steps: cursorSteps
+                        gatewayCard(
+                            id: "claude-web",
+                            logo: "claude-web-logo",
+                            name: "Claude Web (claude.ai)",
+                            description: "Use your Lisn memory directly in claude.ai conversations.",
+                            steps: claudeWebSteps
                         )
 
-                        gatewayRow(
+                        gatewayCard(
                             id: "chatgpt",
+                            logo: "chatgpt-logo",
                             name: "ChatGPT",
-                            subtitle: "Use your Lisn memory in ChatGPT conversations",
-                            iconName: "sparkle",
-                            tint: Color(red: 0.16, green: 0.65, blue: 0.53),
+                            description: "Access your voice recordings and memory from ChatGPT.",
                             steps: chatGPTSteps
                         )
 
-                        gatewayRow(
-                            id: "claude-web",
-                            name: "Claude Web (claude.ai)",
-                            subtitle: "Use your Lisn memory directly in claude.ai",
-                            iconName: "globe",
-                            tint: Color(red: 0.82, green: 0.55, blue: 0.24),
-                            badge: "Coming Soon",
-                            steps: nil
+                        gatewayCard(
+                            id: "cursor",
+                            logo: "cursor-logo",
+                            name: "Cursor IDE",
+                            description: "Search your memory while coding — context from your conversations.",
+                            steps: cursorSteps
                         )
 
-                        gatewayRow(
+                        gatewayCard(
                             id: "whatsapp",
+                            logo: "whatsapp-logo",
                             name: "WhatsApp",
-                            subtitle: "Chat with your memories on WhatsApp",
-                            iconName: "ellipsis.message.fill",
-                            tint: Color(red: 0.15, green: 0.68, blue: 0.38),
+                            description: "Chat with your memories on WhatsApp.",
                             badge: "Coming Soon",
                             steps: nil
                         )
                     }
-                    .padding(.bottom, LisnSpacing.xxxl)
                 }
+                .padding(.horizontal, LisnSpacing.md)
+                .padding(.bottom, LisnSpacing.xxxl)
             }
             .background(LisnColors.bgPrimary)
             .toolbar(.hidden, for: .navigationBar)
@@ -112,35 +107,38 @@ struct GatewaysView: View {
     // MARK: - Hero
 
     private var heroSection: some View {
-        VStack(spacing: LisnSpacing.sm) {
-            // Icon
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [LisnColors.accent.opacity(0.15), LisnColors.accent.opacity(0.05)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 64, height: 64)
-
-                Image(systemName: "network")
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(LisnColors.accent)
+        VStack(spacing: LisnSpacing.md) {
+            // Floating overlapping brand icons (like Grok's connector banner)
+            HStack(spacing: -8) {
+                brandIcon("claude-logo", size: 36)
+                brandIcon("chatgpt-logo", size: 36)
+                brandIcon("cursor-logo", size: 36)
+                brandIcon("whatsapp-logo", size: 36)
             }
 
-            Text("Gateways")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(LisnColors.textPrimary)
+            VStack(spacing: LisnSpacing.xs) {
+                Text("Gateways")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(LisnColors.textPrimary)
 
-            Text("Connect your Lisn memory to\nexternal AI tools")
-                .font(LisnFont.bodyMedium())
-                .foregroundColor(LisnColors.textSecondary)
-                .multilineTextAlignment(.center)
+                Text("Connect your Lisn memory to\nexternal AI tools")
+                    .font(LisnFont.bodyMedium())
+                    .foregroundColor(LisnColors.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, LisnSpacing.xl)
+    }
+
+    /// Circular brand icon with shadow border
+    private func brandIcon(_ name: String, size: CGFloat) -> some View {
+        Image(name)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+            .overlay(Circle().stroke(LisnColors.bgPrimary, lineWidth: 2))
+            .shadow(color: Color.black.opacity(0.08), radius: 2, y: 1)
     }
 
     // MARK: - API Key Section
@@ -155,9 +153,7 @@ struct GatewaysView: View {
             .padding(.horizontal, LisnSpacing.xxs)
 
             if let key = viewModel.keys.first {
-                // Existing key card
                 HStack(spacing: LisnSpacing.sm) {
-                    // Key icon
                     Image(systemName: "key.fill")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(LisnColors.accent)
@@ -170,14 +166,13 @@ struct GatewaysView: View {
                             .font(LisnFont.labelLarge())
                             .foregroundColor(LisnColors.textPrimary)
 
-                        Text(key.keyPrefix + "..." )
+                        Text(key.keyPrefix + "...")
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundColor(LisnColors.textTertiary)
                     }
 
                     Spacer()
 
-                    // Copy
                     Button {
                         if let saved = KeychainHelper.load(key: "lisnai_api_key") {
                             UIPasteboard.general.string = saved
@@ -192,14 +187,11 @@ struct GatewaysView: View {
                             .foregroundColor(justCopied ? LisnColors.success : LisnColors.accent)
                             .padding(.horizontal, LisnSpacing.sm)
                             .padding(.vertical, LisnSpacing.xxs + 2)
-                            .background(
-                                (justCopied ? LisnColors.success : LisnColors.accent).opacity(0.1)
-                            )
+                            .background((justCopied ? LisnColors.success : LisnColors.accent).opacity(0.1))
                             .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
                     }
                     .buttonStyle(.plain)
 
-                    // Revoke
                     Button {
                         Task { await viewModel.revokeKey(id: key.id) }
                     } label: {
@@ -210,11 +202,11 @@ struct GatewaysView: View {
                     .buttonStyle(.plain)
                 }
                 .padding(LisnSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .lisnCardStyle()
             } else {
-                // Generate key prompt
                 VStack(spacing: LisnSpacing.sm) {
-                    Text("You need an API key to connect external tools.")
+                    Text("Generate an API key to connect external tools.")
                         .font(LisnFont.caption())
                         .foregroundColor(LisnColors.textSecondary)
 
@@ -242,43 +234,41 @@ struct GatewaysView: View {
                     .disabled(viewModel.isGenerating)
                 }
                 .padding(LisnSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .lisnCardStyle()
             }
         }
     }
 
-    // MARK: - Gateway Row
+    // MARK: - Gateway Card
 
-    private func gatewayRow(
+    private func gatewayCard(
         id: String,
+        logo: String,
         name: String,
-        subtitle: String,
-        iconName: String,
-        tint: Color,
+        description: String,
         badge: String? = nil,
         steps: [SetupStep]?
     ) -> some View {
-        VStack(spacing: 0) {
-            // Header row
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
             Button {
                 guard steps != nil else { return }
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                     expandedId = expandedId == id ? nil : id
                 }
             } label: {
-                HStack(spacing: LisnSpacing.sm) {
-                    // Icon
-                    Image(systemName: iconName)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(tint)
+                HStack(spacing: LisnSpacing.md) {
+                    Image(logo)
+                        .resizable()
+                        .scaledToFit()
                         .frame(width: 36, height: 36)
-                        .background(tint.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm + 2, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
                         HStack(spacing: LisnSpacing.xs) {
                             Text(name)
-                                .font(LisnFont.labelLarge())
+                                .font(LisnFont.titleSmall())
                                 .foregroundColor(LisnColors.textPrimary)
 
                             if let badge {
@@ -292,10 +282,11 @@ struct GatewaysView: View {
                             }
                         }
 
-                        Text(subtitle)
+                        Text(description)
                             .font(LisnFont.caption())
-                            .foregroundColor(LisnColors.textTertiary)
-                            .lineLimit(1)
+                            .foregroundColor(LisnColors.textSecondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Spacer()
@@ -306,44 +297,47 @@ struct GatewaysView: View {
                             .foregroundColor(LisnColors.textTertiary)
                     }
                 }
-                .padding(LisnSpacing.md)
+                .padding(LisnSpacing.lg)
             }
             .buttonStyle(.plain)
 
             // Expanded steps
             if expandedId == id, let steps {
-                VStack(alignment: .leading, spacing: 0) {
-                    Divider()
-                        .padding(.horizontal, LisnSpacing.md)
+                Divider()
+                    .padding(.horizontal, LisnSpacing.lg)
 
-                    VStack(alignment: .leading, spacing: LisnSpacing.md) {
-                        ForEach(Array(steps.enumerated()), id: \.offset) { idx, step in
-                            stepRow(index: idx + 1, step: step)
-                        }
+                VStack(alignment: .leading, spacing: LisnSpacing.lg) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { idx, step in
+                        stepRow(index: idx + 1, step: step)
                     }
-                    .padding(LisnSpacing.md)
-                    .padding(.top, LisnSpacing.xxs)
                 }
+                .padding(LisnSpacing.lg)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .lisnCardStyle()
-        .padding(.horizontal, LisnSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LisnColors.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
+        .shadow(
+            color: LisnShadow.sm.color,
+            radius: LisnShadow.sm.radius,
+            x: LisnShadow.sm.x,
+            y: LisnShadow.sm.y
+        )
     }
 
     // MARK: - Step Row
 
     private func stepRow(index: Int, step: SetupStep) -> some View {
         HStack(alignment: .top, spacing: LisnSpacing.sm) {
-            // Step number
             Text("\(index)")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundColor(LisnColors.accent)
-                .frame(width: 20, height: 20)
+                .frame(width: 22, height: 22)
                 .background(LisnColors.accent.opacity(0.1))
                 .clipShape(Circle())
 
-            VStack(alignment: .leading, spacing: LisnSpacing.xxs) {
+            VStack(alignment: .leading, spacing: LisnSpacing.xs) {
                 Text(step.title)
                     .font(LisnFont.labelLarge())
                     .foregroundColor(LisnColors.textPrimary)
@@ -355,7 +349,6 @@ struct GatewaysView: View {
 
                 if let code = step.code {
                     codeSnippet(code)
-                        .padding(.top, LisnSpacing.xxs)
                 }
             }
         }
@@ -365,7 +358,6 @@ struct GatewaysView: View {
 
     private func codeSnippet(_ code: String) -> some View {
         VStack(alignment: .trailing, spacing: 0) {
-            // Copy button
             Button {
                 UIPasteboard.general.string = code
             } label: {
@@ -389,6 +381,7 @@ struct GatewaysView: View {
                     .padding(.bottom, LisnSpacing.sm)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(LisnColors.bgSecondary)
         .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
     }
@@ -401,33 +394,49 @@ struct GatewaysView: View {
         let code: String?
     }
 
-    private var claudeSteps: [SetupStep] {
-        let base = "https://api.lisnai.com"
-        return [
+    private var claudeCodeSteps: [SetupStep] {
+        [
             SetupStep(title: "Copy your API key", detail: "Tap Copy above. You'll paste it in the config.", code: nil),
             SetupStep(title: "Open config file", detail: "Claude Desktop: Settings > Developer > Edit Config\nClaude Code: edit ~/.claude.json", code: nil),
-            SetupStep(title: "Add the LisnAI server", detail: "Paste this into the mcpServers section:", code: """
+            SetupStep(title: "Add LisnAI server", detail: "Paste this into the mcpServers section:", code: """
             "lisnai": {
               "type": "http",
-              "url": "\(base)/mcp",
+              "url": "\(mcpURL)",
               "headers": {
                 "Authorization": "Bearer YOUR_KEY"
               }
             }
             """),
-            SetupStep(title: "Restart & use", detail: "Restart the app. You'll have 4 tools: search_memories, ask_agent, get_recordings, create_action.", code: nil),
+            SetupStep(title: "Restart & use", detail: "Restart the app. You'll get 4 tools: search_memories, ask_agent, get_recordings, create_action.", code: nil),
+        ]
+    }
+
+    private var claudeWebSteps: [SetupStep] {
+        [
+            SetupStep(title: "Open Connectors", detail: "Go to claude.ai > click your profile > Settings > Connectors.", code: nil),
+            SetupStep(title: "Add custom connector", detail: "Click 'Add custom connector' and enter this URL:", code: mcpURL),
+            SetupStep(title: "Sign in with Google", detail: "Claude will open a sign-in page. Authenticate with your LisnAI Google account. No API key needed — OAuth handles it.", code: nil),
+            SetupStep(title: "Use in conversations", detail: "Start a new chat. Claude can now search your memories, review recordings, and create actions on your iPhone.", code: nil),
+        ]
+    }
+
+    private var chatGPTSteps: [SetupStep] {
+        [
+            SetupStep(title: "Enable Developer Mode", detail: "In ChatGPT, go to Settings > Apps > Advanced settings > turn on Developer mode.", code: nil),
+            SetupStep(title: "Create an app", detail: "Click Create app. Enter this URL:", code: mcpURL),
+            SetupStep(title: "Authenticate", detail: "Select OAuth authentication. ChatGPT will discover the OAuth settings automatically. Sign in with your Google account when prompted.", code: nil),
+            SetupStep(title: "Use in ChatGPT", detail: "Open a new chat, click + > select LisnAI. Ask ChatGPT to search your memories or create actions.", code: nil),
         ]
     }
 
     private var cursorSteps: [SetupStep] {
-        let base = "https://api.lisnai.com"
-        return [
+        [
             SetupStep(title: "Copy your API key", detail: "Tap Copy above.", code: nil),
             SetupStep(title: "Open MCP settings", detail: "Cursor > Settings > MCP Servers > Add New.", code: nil),
             SetupStep(title: "Configure LisnAI", detail: "Add with these settings:", code: """
             "lisnai": {
               "type": "http",
-              "url": "\(base)/mcp",
+              "url": "\(mcpURL)",
               "headers": {
                 "Authorization": "Bearer YOUR_KEY"
               }
@@ -435,25 +444,6 @@ struct GatewaysView: View {
             """),
             SetupStep(title: "Use in Cursor", detail: "Ask: \"Search my Lisn recordings about the API design\" or \"What did I discuss in my last meeting?\"", code: nil),
         ]
-    }
-
-    private var chatGPTSteps: [SetupStep] {
-        let base = "https://api.lisnai.com"
-        return [
-            SetupStep(title: "Enable Developer Mode", detail: "In ChatGPT, go to Settings > Apps & Connectors > Advanced settings > turn on Developer mode.", code: nil),
-            SetupStep(title: "Create a connector", detail: "Go to Settings > Connectors > click Create. Enter this URL:", code: "\(base)/mcp"),
-            SetupStep(title: "Add authentication", detail: "In the connector settings, add a custom header for auth. Use your API key from above:", code: "Authorization: Bearer YOUR_KEY"),
-            SetupStep(title: "Use in ChatGPT", detail: "Open a new chat, click + > More > select your LisnAI connector. Ask ChatGPT to search your memories or create actions.", code: nil),
-        ]
-    }
-
-    // MARK: - Helpers
-
-    private func formatDate(_ iso: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        guard let date = formatter.date(from: iso) else { return iso }
-        let rel = RelativeDateTimeFormatter()
-        return rel.localizedString(for: date, relativeTo: Date())
     }
 }
 
