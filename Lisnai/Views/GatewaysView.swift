@@ -41,7 +41,7 @@ struct GatewaysView: View {
                             id: "claude-web",
                             logo: "claude-web-logo",
                             name: "Claude Web (claude.ai)",
-                            description: "Use your Lisn memory directly in claude.ai conversations.",
+                            description: "Use your LisnAI memory directly in claude.ai conversations.",
                             steps: claudeWebSteps
                         )
 
@@ -121,7 +121,7 @@ struct GatewaysView: View {
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(LisnColors.textPrimary)
 
-                Text("Connect your Lisn memory to\nexternal AI tools")
+                Text("Connect your LisnAI memory to\nexternal AI tools")
                     .font(LisnFont.bodyMedium())
                     .foregroundColor(LisnColors.textSecondary)
                     .multilineTextAlignment(.center)
