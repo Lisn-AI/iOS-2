@@ -65,8 +65,16 @@ class RecordingManager: NSObject, ObservableObject {
     private var recordingSessionId: String = ""
     private var accumulatedTranscript: String = ""
     private let chunkIntervalSeconds: TimeInterval = 300 // 5 minutes
-    private var isProcessingChunk = false
-    private var chunkRetryQueue: [(index: Int, cafURL: URL, startTime: TimeInterval, endTime: TimeInterval)] = []
+
+    // Phase 1: Chunk queue (replaces isProcessingChunk boolean lock)
+    // Transcription runs in parallel, backend uploads are serial (preserves rolling summary chain)
+    private var pendingChunkTranscriptions: [Int: Task<(String, Int, Double, Double), Error>] = [:] // chunkIndex → transcription task
+    private var nextBackendUploadIndex: Int = 0 // ensures sequential backend uploads
+    private var transcribedChunks: [(index: Int, transcript: String, startTime: Double, endTime: Double)] = [] // buffer for out-of-order completions
+
+    // Phase 3: Retry queue for failed chunks
+    private var chunkRetryQueue: [(index: Int, cafURL: URL, startTime: TimeInterval, endTime: TimeInterval, attempt: Int)] = []
+    private let maxRetryAttempts = 3
 
     // Live suggestion state
     private var activeSuggestion: LiveSuggestion?
@@ -729,6 +737,9 @@ class RecordingManager: NSObject, ObservableObject {
         currentChunkStartTime = 0
         accumulatedTranscript = ""
         chunkRetryQueue = []
+        pendingChunkTranscriptions = [:]
+        nextBackendUploadIndex = 0
+        transcribedChunks = []
 
         // Start chunk timer — fires every 5 minutes to export and process a chunk
         chunkTimer = Timer.scheduledTimer(withTimeInterval: chunkIntervalSeconds, repeats: true) { [weak self] _ in
@@ -966,7 +977,23 @@ class RecordingManager: NSObject, ObservableObject {
                 contextMemories: contextMemories.isEmpty ? nil : contextMemories
             )
 
-            var summaryText = ""
+            // Phase 2: SAVE FIRST — create Recording with transcript immediately
+            var savedRecording: Recording?
+            if let context = modelContext {
+                let recording = Recording(date: date, duration: totalDuration, title: nil)
+                let transcriptionModel = Transcription(date: date, text: labeledTranscript, recording: recording)
+                recording.transcription = transcriptionModel
+                context.insert(recording)
+                do {
+                    try context.save()
+                    savedRecording = recording
+                    print("[SingleChunk] Phase 2: Recording saved with transcript (title pending)")
+                } catch {
+                    print("[SingleChunk] Phase 2: Initial save failed: \(error.localizedDescription)")
+                }
+            }
+
+            // Step 5: Send to backend for enrichment
             var chunkResult: ChunkProcessResult?
             do {
                 let result = try await DataService.shared.processChunk(
@@ -974,27 +1001,25 @@ class RecordingManager: NSObject, ObservableObject {
                     transcript: labeledTranscript,
                     context: modelContext!
                 )
-                summaryText = result.summary ?? ""
-                summary = summaryText
+                summary = result.summary ?? ""
                 chunkResult = result
                 print("[SingleChunk] Backend processed: title=\(result.title ?? "nil"), hasInsight=\(result.insight != nil)")
             } catch {
                 print("[SingleChunk] Backend processing failed: \(error.localizedDescription)")
             }
 
-            // Step 5: Save to SwiftData directly (don't use saveToSwiftData which double-sends to backend)
-            if let context = modelContext {
-                let recording = Recording(date: date, duration: totalDuration, title: chunkResult?.title)
+            // Phase 2: ENRICH — update existing Recording
+            if let context = modelContext, let recording = savedRecording {
+                if let title = chunkResult?.title {
+                    recording.title = title
+                }
 
-                let transcriptionModel = Transcription(date: date, text: labeledTranscript, recording: recording)
-                recording.transcription = transcriptionModel
-
+                let summaryText = chunkResult?.summary ?? ""
                 if !summaryText.isEmpty {
                     let summaryModel = Summary(date: date, text: summaryText, recording: recording)
                     recording.summary = summaryModel
                 }
 
-                // Attach insight if available
                 if let insightData = chunkResult?.insight {
                     let insight = Insight(
                         date: date,
@@ -1007,15 +1032,24 @@ class RecordingManager: NSObject, ObservableObject {
                     )
                     recording.insight = insight
                     insight.recording = recording
-                    print("[SingleChunk] Insight attached to recording")
                 }
 
-                context.insert(recording)
                 do {
                     try context.save()
-                    print("[SingleChunk] SwiftData saved: title=\(recording.title ?? "nil"), hasInsight=\(recording.insight != nil)")
+                    print("[SingleChunk] Phase 2: Recording enriched")
                 } catch {
-                    print("[SingleChunk] SwiftData save failed: \(error.localizedDescription)")
+                    print("[SingleChunk] Phase 2: Enrichment save failed (transcript safe): \(error.localizedDescription)")
+                }
+
+                if let memoryId = chunkResult?.memoryId {
+                    let recordingId = recording.id
+                    let descriptor = FetchDescriptor<LocalMemory>(
+                        predicate: #Predicate { $0.serverMemoryId == memoryId }
+                    )
+                    if let localMemory = try? context.fetch(descriptor).first {
+                        localMemory.recordingId = recordingId
+                        try? context.save()
+                    }
                 }
             }
 
@@ -1037,10 +1071,10 @@ class RecordingManager: NSObject, ObservableObject {
     // MARK: - Chunk Processing
 
     /// Export the current audio segment as a chunk without stopping recording
-    /// Same pattern as phone call interruption: close file, open new one
+    /// Phase 1: No longer blocked by isProcessingChunk — always exports, adds to queue
     private func exportCurrentChunk() {
-        guard isRecording, !isPausedForCall, !isPausedManually, !isProcessingChunk else {
-            print("[Chunk] Skipping export - isRecording:\(isRecording) isPausedForCall:\(isPausedForCall) isPausedManually:\(isPausedManually) isProcessing:\(isProcessingChunk)")
+        guard isRecording, !isPausedForCall, !isPausedManually else {
+            print("[Chunk] Skipping export - isRecording:\(isRecording) isPausedForCall:\(isPausedForCall) isPausedManually:\(isPausedManually)")
             return
         }
 
@@ -1091,42 +1125,46 @@ class RecordingManager: NSObject, ObservableObject {
         }
     }
 
-    /// Process a single chunk: export to M4A, transcribe, send to backend
+    /// Phase 1: Process a chunk — transcribe in parallel, upload to backend sequentially
     private func processChunkAsync(index: Int, cafURL: URL, startTime: TimeInterval, endTime: TimeInterval) async {
-        isProcessingChunk = true
-        defer { isProcessingChunk = false }
-
         print("[Chunk] Processing chunk \(index)...")
 
         // Step 1: Export CAF to M4A
         guard let m4aURL = await exportCAFToM4A(cafURL: cafURL) else {
-            print("[Chunk] Failed to export chunk \(index) to M4A, queuing for retry")
-            chunkRetryQueue.append((index: index, cafURL: cafURL, startTime: startTime, endTime: endTime))
+            print("[Chunk] Failed to export chunk \(index), queuing for retry")
+            chunkRetryQueue.append((index: index, cafURL: cafURL, startTime: startTime, endTime: endTime, attempt: 0))
             return
         }
 
-        // Step 2: Transcribe with Deepgram
+        // Step 2: Transcribe with Deepgram (runs in parallel with other chunk transcriptions)
         let transcript: String
         do {
-            let (fullText, segments) = try await deepgramService.transcribeAndDiarize(fileURL: m4aURL)
+            let (_, segments) = try await deepgramService.transcribeAndDiarize(fileURL: m4aURL)
             transcript = formatDeepgramTranscript(segments: segments)
             print("[Chunk] Transcribed chunk \(index): \(transcript.count) chars")
         } catch {
             print("[Chunk] Transcription failed for chunk \(index): \(error.localizedDescription)")
-            // Clean up M4A
             try? FileManager.default.removeItem(at: m4aURL)
-            chunkRetryQueue.append((index: index, cafURL: cafURL, startTime: startTime, endTime: endTime))
+            // Phase 3: retry with backoff
+            await retryFailedChunk(index: index, cafURL: cafURL, startTime: startTime, endTime: endTime)
             return
         }
 
         // Step 3: Append to accumulated transcript (for UI display)
-        if !accumulatedTranscript.isEmpty {
-            accumulatedTranscript += "\n\n"
+        await MainActor.run {
+            if !accumulatedTranscript.isEmpty {
+                accumulatedTranscript += "\n\n"
+            }
+            accumulatedTranscript += transcript
+            transcription = accumulatedTranscript
         }
-        accumulatedTranscript += transcript
-        transcription = accumulatedTranscript
 
-        // Step 4: Send to backend
+        // Step 4: Wait for sequential turn to upload to backend
+        // (preserves rolling summary chain: chunk N needs chunk N-1's summary)
+        while nextBackendUploadIndex < index {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms poll
+        }
+
         await sendChunkToBackend(
             chunkIndex: index,
             transcript: transcript,
@@ -1135,11 +1173,55 @@ class RecordingManager: NSObject, ObservableObject {
             endTime: endTime
         )
 
+        nextBackendUploadIndex = index + 1
+
         // Step 5: Clean up audio files
         try? FileManager.default.removeItem(at: m4aURL)
         try? FileManager.default.removeItem(at: cafURL)
 
-        print("[Chunk] Chunk \(index) processed successfully")
+        print("[Chunk] Chunk \(index) processed and uploaded successfully")
+    }
+
+    // Phase 3: Retry a failed chunk with exponential backoff
+    private func retryFailedChunk(index: Int, cafURL: URL, startTime: TimeInterval, endTime: TimeInterval) async {
+        for attempt in 1...maxRetryAttempts {
+            let delay = UInt64(pow(2.0, Double(attempt))) * 1_000_000_000 // 2s, 4s, 8s
+            try? await Task.sleep(nanoseconds: delay)
+
+            print("[Chunk] Retry \(attempt)/\(maxRetryAttempts) for chunk \(index)")
+
+            guard let m4aURL = await exportCAFToM4A(cafURL: cafURL) else { continue }
+
+            do {
+                let (_, segments) = try await deepgramService.transcribeAndDiarize(fileURL: m4aURL)
+                let transcript = formatDeepgramTranscript(segments: segments)
+
+                await MainActor.run {
+                    if !accumulatedTranscript.isEmpty { accumulatedTranscript += "\n\n" }
+                    accumulatedTranscript += transcript
+                    transcription = accumulatedTranscript
+                }
+
+                while nextBackendUploadIndex < index {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+
+                await sendChunkToBackend(chunkIndex: index, transcript: transcript, isFinal: false, startTime: startTime, endTime: endTime)
+                nextBackendUploadIndex = index + 1
+
+                try? FileManager.default.removeItem(at: m4aURL)
+                try? FileManager.default.removeItem(at: cafURL)
+                print("[Chunk] Retry succeeded for chunk \(index)")
+                return
+            } catch {
+                try? FileManager.default.removeItem(at: m4aURL)
+                print("[Chunk] Retry \(attempt) failed for chunk \(index): \(error.localizedDescription)")
+            }
+        }
+
+        // All retries exhausted — accept the gap
+        print("[Chunk] All retries exhausted for chunk \(index). Transcript gap accepted.")
+        nextBackendUploadIndex = max(nextBackendUploadIndex, index + 1)
     }
 
     /// Process the remaining (final) audio segment when recording stops in multi-chunk mode
@@ -1191,16 +1273,31 @@ class RecordingManager: NSObject, ObservableObject {
             )
         }
 
-        // Send finalization signal
-        let finalizationResult = await sendFinalizationSignal(sessionId: sessionId)
-
-        // Save to SwiftData directly (don't use saveToSwiftData which double-sends to backend)
+        // Phase 2: SAVE FIRST — create Recording with transcript immediately
         let date = recordingDate ?? Date()
+        var savedRecording: Recording?
         if let context = modelContext {
-            let recording = Recording(date: date, duration: duration, title: finalizationResult?.title)
-
+            let recording = Recording(date: date, duration: duration, title: nil)
             let transcriptionModel = Transcription(date: date, text: accumulatedTranscript, recording: recording)
             recording.transcription = transcriptionModel
+            context.insert(recording)
+            do {
+                try context.save()
+                savedRecording = recording
+                print("[Chunk] Phase 2: Recording saved with transcript (title pending)")
+            } catch {
+                print("[Chunk] Phase 2: Initial save failed: \(error.localizedDescription)")
+            }
+        }
+
+        // Send finalization signal (enrichment step — can fail gracefully)
+        let finalizationResult = await sendFinalizationSignal(sessionId: sessionId)
+
+        // Phase 2: ENRICH — update existing Recording with title/summary/insight
+        if let context = modelContext, let recording = savedRecording {
+            if let title = finalizationResult?.title {
+                recording.title = title
+            }
 
             let summaryText = finalizationResult?.summary ?? ""
             if !summaryText.isEmpty {
@@ -1208,7 +1305,6 @@ class RecordingManager: NSObject, ObservableObject {
                 recording.summary = summaryModel
             }
 
-            // Attach insight if available
             if let insightData = finalizationResult?.insight {
                 let insight = Insight(
                     date: date,
@@ -1221,15 +1317,25 @@ class RecordingManager: NSObject, ObservableObject {
                 )
                 recording.insight = insight
                 insight.recording = recording
-                print("[Chunk] Insight saved to recording")
             }
 
-            context.insert(recording)
             do {
                 try context.save()
-                print("[Chunk] Recording saved to SwiftData")
+                print("[Chunk] Phase 2: Recording enriched with title/summary/insight")
             } catch {
-                print("[Chunk] SwiftData save failed: \(error.localizedDescription)")
+                print("[Chunk] Phase 2: Enrichment save failed (transcript still safe): \(error.localizedDescription)")
+            }
+
+            // Link LocalMemory → Recording
+            if let memoryId = finalizationResult?.memoryId {
+                let recordingId = recording.id
+                let descriptor = FetchDescriptor<LocalMemory>(
+                    predicate: #Predicate { $0.serverMemoryId == memoryId }
+                )
+                if let localMemory = try? context.fetch(descriptor).first {
+                    localMemory.recordingId = recordingId
+                    try? context.save()
+                }
             }
         }
 
