@@ -194,13 +194,44 @@ struct HomeView: View {
 
     // MARK: - Results Layout
 
+    @State private var pullOffset: CGFloat = 0
+    private let dismissThreshold: CGFloat = 120
+
     private var resultsLayout: some View {
         VStack(spacing: 0) {
-            // Swipe indicator
-            Capsule()
-                .fill(LisnColors.textTertiary.opacity(0.3))
-                .frame(width: 36, height: 4)
-                .padding(.top, LisnSpacing.sm)
+            // Pull-to-dismiss handle — wide touch target
+            VStack(spacing: LisnSpacing.xs) {
+                Capsule()
+                    .fill(LisnColors.textTertiary.opacity(0.4))
+                    .frame(width: 40, height: 5)
+
+                Text("Pull down to dismiss")
+                    .font(.system(size: 10))
+                    .foregroundColor(LisnColors.textTertiary.opacity(pullOffset > 20 ? 1 : 0))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if value.translation.height > 0 {
+                            pullOffset = value.translation.height
+                        }
+                    }
+                    .onEnded { value in
+                        if value.translation.height > dismissThreshold {
+                            LisnHaptics.light()
+                            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                                dismissedResults = true
+                            }
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            pullOffset = 0
+                        }
+                    }
+            )
+            .padding(.top, LisnSpacing.xs)
 
             // Compact orb
             RecordingOrb(
@@ -264,17 +295,7 @@ struct HomeView: View {
                 .padding(.bottom, LisnSpacing.xxl)
             }
         }
-        .gesture(
-            DragGesture(minimumDistance: 60)
-                .onEnded { value in
-                    if value.translation.height > 80 {
-                        LisnHaptics.light()
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                            dismissedResults = true
-                        }
-                    }
-                }
-        )
+        .offset(y: pullOffset * 0.3) // Rubber-band effect while pulling
     }
 
     // MARK: - Recording Card (expanded/collapsed)
