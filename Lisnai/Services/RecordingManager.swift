@@ -1876,12 +1876,32 @@ class RecordingManager: NSObject, ObservableObject {
             }
             try? context.save()
 
+            // Create LocalMemory with embedding for search (was missing in background path)
             if let memoryId = finalizationResult?.memoryId {
                 let recordingId = recording.id
+
+                // Check if LocalMemory already exists
                 let descriptor = FetchDescriptor<LocalMemory>(predicate: #Predicate { $0.serverMemoryId == memoryId })
-                if let localMemory = try? context.fetch(descriptor).first {
-                    localMemory.recordingId = recordingId
+                if let existing = try? context.fetch(descriptor).first {
+                    existing.recordingId = recordingId
                     try? context.save()
+                } else {
+                    // Create new LocalMemory (was never created because we bypassed DataService)
+                    let localMemory = LocalMemory(
+                        serverMemoryId: memoryId,
+                        timestamp: session.recordingDate,
+                        title: finalizationResult?.title,
+                        rawTranscript: finalTranscript,
+                        summary: finalizationResult?.summary,
+                        isSynced: true
+                    )
+                    localMemory.recordingId = recordingId
+                    if let embedding = finalizationResult?.embedding {
+                        localMemory.embedding = embedding
+                    }
+                    context.insert(localMemory)
+                    try? context.save()
+                    print("[BG-\(session.sessionId.prefix(8))] LocalMemory created with embedding=\(finalizationResult?.embedding != nil)")
                 }
             }
         }
