@@ -20,11 +20,18 @@ struct HomeView: View {
     @State private var appeared = false
     @State private var dismissedResults = false
     @State private var showDiscardAlert = false
+    @State private var expandedRecordingId: UUID? // tracks which card is expanded
     @Query(sort: \Recording.createdAt, order: .reverse) private var recentRecordings: [Recording]
+
+    /// Today's recordings for the stacked card display
+    private var todayRecordings: [Recording] {
+        let startOfDay = Calendar.current.startOfDay(for: Date())
+        return recentRecordings.filter { $0.date >= startOfDay }
+    }
 
     /// Whether we have results to show
     private var hasResults: Bool {
-        !recordingManager.transcription.isEmpty && !isRecording && !recordingManager.isProcessing && !dismissedResults
+        (!recordingManager.transcription.isEmpty || !todayRecordings.isEmpty) && !isRecording && !recordingManager.isProcessing && !dismissedResults
     }
 
     var body: some View {
@@ -200,21 +207,41 @@ struct HomeView: View {
                 .foregroundColor(LisnColors.textTertiary)
                 .padding(.bottom, LisnSpacing.md)
 
-            // Scrollable results
+            // Processing pill (shows when recordings are being processed in background)
+            if recordingManager.isProcessing {
+                processingPill
+                    .padding(.horizontal, LisnSpacing.lg)
+                    .padding(.bottom, LisnSpacing.sm)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+
+            // Stacked recording cards
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: LisnSpacing.md) {
-                    TranscriptionCard(
-                        transcription: recordingManager.transcription,
-                        duration: recordingManager.recordingDuration
-                    )
+                VStack(spacing: LisnSpacing.sm) {
+                    if todayRecordings.isEmpty {
+                        // Fallback: show from recordingManager (processing not yet saved)
+                        if !recordingManager.transcription.isEmpty {
+                            TranscriptionCard(
+                                transcription: recordingManager.transcription,
+                                duration: recordingManager.recordingDuration
+                            )
+                            if !recordingManager.summary.isEmpty {
+                                summaryCard
+                            }
+                        }
+                    } else {
+                        ForEach(todayRecordings) { recording in
+                            let isExpanded = expandedRecordingId == recording.id || (expandedRecordingId == nil && recording.id == todayRecordings.first?.id)
 
-                    if !recordingManager.summary.isEmpty {
-                        summaryCard
-                    }
-
-                    // Show insight card if the latest recording has one
-                    if let latestInsight = recentRecordings.first?.insight {
-                        InsightCard(insight: latestInsight)
+                            recordingCard(recording: recording, isExpanded: isExpanded)
+                                .onTapGesture {
+                                    guard !isExpanded else { return }
+                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                        expandedRecordingId = recording.id
+                                    }
+                                    LisnHaptics.light()
+                                }
+                        }
                     }
                 }
                 .padding(.horizontal, LisnSpacing.lg)
@@ -224,7 +251,6 @@ struct HomeView: View {
         .gesture(
             DragGesture(minimumDistance: 60)
                 .onEnded { value in
-                    // Swipe down to dismiss results
                     if value.translation.height > 80 {
                         LisnHaptics.light()
                         withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
@@ -233,6 +259,111 @@ struct HomeView: View {
                     }
                 }
         )
+    }
+
+    // MARK: - Recording Card (expanded/collapsed)
+
+    @ViewBuilder
+    private func recordingCard(recording: Recording, isExpanded: Bool) -> some View {
+        VStack(alignment: .leading, spacing: isExpanded ? LisnSpacing.md : 0) {
+            // Header (always visible)
+            HStack(spacing: LisnSpacing.sm) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(LisnColors.accent)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(recording.title ?? "Recording at \(recording.date.formatted(date: .omitted, time: .shortened))")
+                        .font(LisnFont.labelLarge())
+                        .foregroundColor(LisnColors.textPrimary)
+                        .lineLimit(isExpanded ? nil : 1)
+
+                    HStack(spacing: LisnSpacing.xs) {
+                        Text(formatDuration(recording.duration))
+                            .font(LisnFont.caption())
+                            .foregroundColor(LisnColors.textTertiary)
+
+                        if recording.title == nil {
+                            HStack(spacing: 4) {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                Text("Processing...")
+                                    .font(LisnFont.caption())
+                                    .foregroundColor(LisnColors.accent)
+                            }
+                        }
+                    }
+                }
+
+                Spacer()
+
+                if !isExpanded {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(LisnColors.textTertiary)
+                }
+            }
+
+            // Expanded content
+            if isExpanded {
+                if let transcript = recording.transcription?.text, !transcript.isEmpty {
+                    TranscriptionCard(transcription: transcript, duration: formatDuration(recording.duration))
+                }
+
+                if let summaryText = recording.summary?.text, !summaryText.isEmpty {
+                    VStack(alignment: .leading, spacing: LisnSpacing.sm) {
+                        HStack(spacing: LisnSpacing.xs) {
+                            Image(systemName: "text.alignleft")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(LisnColors.accent)
+                            Text("Summary")
+                                .font(LisnFont.labelLarge())
+                                .foregroundColor(LisnColors.textPrimary)
+                        }
+                        Markdown(summaryText)
+                            .markdownTheme(.lisnContent)
+                    }
+                    .padding(LisnSpacing.md)
+                    .background(LisnColors.bgElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
+                }
+
+                if let insight = recording.insight {
+                    InsightCard(insight: insight)
+                }
+            }
+        }
+        .padding(isExpanded ? LisnSpacing.md : LisnSpacing.sm)
+        .background(LisnColors.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
+        .shadow(
+            color: isExpanded ? LisnShadow.md.color : LisnShadow.sm.color,
+            radius: isExpanded ? LisnShadow.md.radius : LisnShadow.sm.radius,
+            x: 0, y: isExpanded ? LisnShadow.md.y : LisnShadow.sm.y
+        )
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isExpanded)
+    }
+
+    // MARK: - Processing Pill
+
+    private var processingPill: some View {
+        HStack(spacing: LisnSpacing.xs) {
+            ProgressView()
+                .scaleEffect(0.7)
+            Text("Processing recording...")
+                .font(LisnFont.caption())
+                .foregroundColor(LisnColors.textSecondary)
+        }
+        .padding(.horizontal, LisnSpacing.md)
+        .padding(.vertical, LisnSpacing.xs)
+        .background(LisnColors.accent.opacity(0.08))
+        .clipShape(Capsule())
+    }
+
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let mins = Int(duration) / 60
+        let secs = Int(duration) % 60
+        return mins > 0 ? "\(mins)m \(secs)s" : "\(secs)s"
     }
 
     // MARK: - Top Bar
