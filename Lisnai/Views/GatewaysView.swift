@@ -130,15 +130,17 @@ struct GatewaysView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Circular brand icon with shadow border
+    /// Brand icon with background circle and proper padding
     private func brandIcon(_ name: String, size: CGFloat) -> some View {
         Image(name)
             .resizable()
             .scaledToFit()
+            .padding(size * 0.2)
             .frame(width: size, height: size)
+            .background(LisnColors.bgElevated)
             .clipShape(Circle())
-            .overlay(Circle().stroke(LisnColors.bgPrimary, lineWidth: 2))
-            .shadow(color: Color.black.opacity(0.08), radius: 2, y: 1)
+            .overlay(Circle().stroke(LisnColors.bgPrimary, lineWidth: 2.5))
+            .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
     }
 
     // MARK: - API Key Section
