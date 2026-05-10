@@ -254,7 +254,7 @@ struct GatewaysView: View {
             // Header
             Button {
                 guard steps != nil else { return }
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                withAnimation(.easeInOut(duration: 0.25)) {
                     expandedId = expandedId == id ? nil : id
                 }
             } label: {
@@ -312,7 +312,6 @@ struct GatewaysView: View {
                     }
                 }
                 .padding(LisnSpacing.lg)
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
