@@ -402,7 +402,7 @@ struct GatewaysView: View {
     }
 
     private var claudeSteps: [SetupStep] {
-        let base = "https://backend-test-8pbt.onrender.com"
+        let base = "https://api.lisnai.com"
         return [
             SetupStep(title: "Copy your API key", detail: "Tap Copy above. You'll paste it in the config.", code: nil),
             SetupStep(title: "Open config file", detail: "Claude Desktop: Settings > Developer > Edit Config\nClaude Code: edit ~/.claude.json", code: nil),
@@ -420,7 +420,7 @@ struct GatewaysView: View {
     }
 
     private var cursorSteps: [SetupStep] {
-        let base = "https://backend-test-8pbt.onrender.com"
+        let base = "https://api.lisnai.com"
         return [
             SetupStep(title: "Copy your API key", detail: "Tap Copy above.", code: nil),
             SetupStep(title: "Open MCP settings", detail: "Cursor > Settings > MCP Servers > Add New.", code: nil),
@@ -438,7 +438,7 @@ struct GatewaysView: View {
     }
 
     private var chatGPTSteps: [SetupStep] {
-        let base = "https://backend-test-8pbt.onrender.com"
+        let base = "https://api.lisnai.com"
         return [
             SetupStep(title: "Enable Developer Mode", detail: "In ChatGPT, go to Settings > Apps & Connectors > Advanced settings > turn on Developer mode.", code: nil),
             SetupStep(title: "Create a connector", detail: "Go to Settings > Connectors > click Create. Enter this URL:", code: "\(base)/mcp"),

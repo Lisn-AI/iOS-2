@@ -10,7 +10,7 @@ class APIService: ObservableObject {
     // MARK: - Configuration
 
     // Render production URL
-    private let baseURL = "https://backend-test-8pbt.onrender.com"
+    private let baseURL = "https://api.lisnai.com"
 
     @Published var isConnected = true
     @Published var lastError: APIError?
