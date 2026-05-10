@@ -251,7 +251,7 @@ struct HomeView: View {
                 .padding(.bottom, LisnSpacing.md)
 
             // Processing pill (shows when recordings are being processed in background)
-            if recordingManager.isProcessing {
+            if recordingManager.isProcessing || recordingManager.backgroundProcessingCount > 0 {
                 processingPill
                     .padding(.horizontal, LisnSpacing.lg)
                     .padding(.bottom, LisnSpacing.sm)
@@ -384,10 +384,11 @@ struct HomeView: View {
     // MARK: - Processing Pill
 
     private var processingPill: some View {
-        HStack(spacing: LisnSpacing.xs) {
+        let count = recordingManager.backgroundProcessingCount
+        return HStack(spacing: LisnSpacing.xs) {
             ProgressView()
                 .scaleEffect(0.7)
-            Text("Processing recording...")
+            Text(count > 1 ? "\(count) recordings processing..." : "Processing recording...")
                 .font(LisnFont.caption())
                 .foregroundColor(LisnColors.textSecondary)
         }

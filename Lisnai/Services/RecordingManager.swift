@@ -7,16 +7,50 @@ import ActivityKit
 import SwiftData
 import FirebaseAuth
 
+// MARK: - Background Recording Session (Phase 4)
+// Captures all session-specific state when a recording stops,
+// so finalization can run in the background while a new recording starts.
+
+@MainActor
+class BackgroundRecordingSession: Identifiable {
+    let id = UUID()
+    let sessionId: String
+    let accumulatedTranscript: String
+    let recordingSegments: [URL]
+    let currentChunkIndex: Int
+    let currentChunkStartTime: TimeInterval
+    let duration: TimeInterval
+    let recordingDate: Date
+    let modelContext: ModelContext?
+    let hadChunks: Bool
+    var isComplete = false
+
+    init(sessionId: String, accumulatedTranscript: String, recordingSegments: [URL],
+         currentChunkIndex: Int, currentChunkStartTime: TimeInterval,
+         duration: TimeInterval, recordingDate: Date, modelContext: ModelContext?, hadChunks: Bool) {
+        self.sessionId = sessionId
+        self.accumulatedTranscript = accumulatedTranscript
+        self.recordingSegments = recordingSegments
+        self.currentChunkIndex = currentChunkIndex
+        self.currentChunkStartTime = currentChunkStartTime
+        self.duration = duration
+        self.recordingDate = recordingDate
+        self.modelContext = modelContext
+        self.hadChunks = hadChunks
+    }
+}
+
 @MainActor
 class RecordingManager: NSObject, ObservableObject {
     @Published var isRecording = false
-    @Published var isPausedForCall = false  // Tracks if recording is paused due to phone call
-    @Published var isPausedManually = false // Tracks if user manually paused recording
+    @Published var isPausedForCall = false
+    @Published var isPausedManually = false
     @Published var recordingDuration = "00:00:00"
     @Published var transcription = ""
     @Published var summary = ""
     @Published var isProcessing = false
     @Published var audioLevel: CGFloat = 0
+    @Published var backgroundProcessingCount = 0 // Phase 4: number of sessions finalizing in background
 
     /// Whether recording is paused (either manually or for a call)
     var isPaused: Bool { isPausedForCall || isPausedManually }
@@ -75,6 +109,9 @@ class RecordingManager: NSObject, ObservableObject {
     // Phase 3: Retry queue for failed chunks
     private var chunkRetryQueue: [(index: Int, cafURL: URL, startTime: TimeInterval, endTime: TimeInterval, attempt: Int)] = []
     private let maxRetryAttempts = 3
+
+    // Phase 4: Background sessions (finalizing while new recording starts)
+    private var backgroundSessions: [BackgroundRecordingSession] = []
 
     // Live suggestion state
     private var activeSuggestion: LiveSuggestion?
@@ -806,22 +843,51 @@ class RecordingManager: NSObject, ObservableObject {
         recordingStartTime = nil
 
         let hadChunks = currentChunkIndex > 0
-        let capturedSessionId = recordingSessionId
-        let capturedChunkIndex = currentChunkIndex
 
-        // Process recording
-        if !recordingSegments.isEmpty {
+        // Phase 4: Capture ALL session state before resetting
+        let bgSession = BackgroundRecordingSession(
+            sessionId: recordingSessionId,
+            accumulatedTranscript: accumulatedTranscript,
+            recordingSegments: recordingSegments,
+            currentChunkIndex: currentChunkIndex,
+            currentChunkStartTime: currentChunkStartTime,
+            duration: capturedDuration,
+            recordingDate: recordingDate ?? Date(),
+            modelContext: modelContext,
+            hadChunks: hadChunks
+        )
+
+        // Reset session state immediately so a new recording can start clean
+        recordingSegments = []
+        currentSegmentIndex = 0
+        currentChunkIndex = 0
+        currentChunkStartTime = 0
+        accumulatedTranscript = ""
+        recordingSessionId = ""
+        pendingChunkTranscriptions = [:]
+        nextBackendUploadIndex = 0
+        transcribedChunks = []
+        chunkRetryQueue = []
+
+        // Start finalization in background using captured state
+        if !bgSession.recordingSegments.isEmpty {
+            backgroundSessions.append(bgSession)
+            backgroundProcessingCount = backgroundSessions.count
+            isProcessing = true
+
             Task {
-                if hadChunks {
-                    // Multi-chunk: process the final segment then send finalization
-                    await processRemainingSegmentAsChunk(
-                        sessionId: capturedSessionId,
-                        chunkIndex: capturedChunkIndex,
-                        duration: capturedDuration
-                    )
+                if bgSession.hadChunks {
+                    await processRemainingSegmentAsChunkBackground(session: bgSession)
                 } else {
-                    // Single segment: use existing flow (backward compatible)
-                    await processRecordingSegments(duration: capturedDuration)
+                    await processRecordingSegmentsBackground(session: bgSession)
+                }
+
+                // Finalization complete — remove from background
+                bgSession.isComplete = true
+                backgroundSessions.removeAll { $0.id == bgSession.id }
+                backgroundProcessingCount = backgroundSessions.count
+                if backgroundSessions.isEmpty {
+                    isProcessing = false
                 }
             }
         }
@@ -1732,6 +1798,213 @@ class RecordingManager: NSObject, ObservableObject {
     // private func transcribeRecording() {
     //     // Use SpeechAnalyzer + SpeechTranscriber
     // }
+
+    // MARK: - Phase 4: Background Session Finalization
+    // These methods use captured BackgroundRecordingSession state instead of self,
+    // so they don't interfere with a new active recording.
+
+    private func processRemainingSegmentAsChunkBackground(session: BackgroundRecordingSession) async {
+        guard let lastSegmentURL = session.recordingSegments.last else {
+            print("[BG-\(session.sessionId.prefix(8))] No final segment")
+            _ = await sendFinalizationSignal(sessionId: session.sessionId)
+            return
+        }
+
+        guard let m4aURL = await exportCAFToM4A(cafURL: lastSegmentURL) else {
+            print("[BG-\(session.sessionId.prefix(8))] Final segment export failed")
+            _ = await sendFinalizationSignal(sessionId: session.sessionId)
+            return
+        }
+
+        var finalTranscript = session.accumulatedTranscript
+        do {
+            let (_, segments) = try await deepgramService.transcribeAndDiarize(fileURL: m4aURL)
+            let transcript = formatDeepgramTranscript(segments: segments)
+            if !transcript.isEmpty {
+                if !finalTranscript.isEmpty { finalTranscript += "\n\n" }
+                finalTranscript += transcript
+            }
+        } catch {
+            print("[BG-\(session.sessionId.prefix(8))] Final transcription failed: \(error.localizedDescription)")
+        }
+
+        // Send final chunk to backend
+        if finalTranscript != session.accumulatedTranscript {
+            await sendChunkToBackend(
+                chunkIndex: session.currentChunkIndex,
+                transcript: String(finalTranscript.suffix(from: finalTranscript.index(finalTranscript.startIndex, offsetBy: min(session.accumulatedTranscript.count, finalTranscript.count)))),
+                isFinal: false,
+                startTime: session.currentChunkStartTime,
+                endTime: session.duration
+            )
+        }
+
+        let finalizationResult = await sendFinalizationSignal(sessionId: session.sessionId)
+
+        // Save to SwiftData using captured state
+        if let context = session.modelContext {
+            // Phase 2: Save first
+            let recording = Recording(date: session.recordingDate, duration: session.duration, title: nil)
+            let transcriptionModel = Transcription(date: session.recordingDate, text: finalTranscript, recording: recording)
+            recording.transcription = transcriptionModel
+            context.insert(recording)
+            do {
+                try context.save()
+                NotificationCenter.default.post(name: .recordingSaved, object: nil, userInfo: ["recordingId": recording.id.uuidString])
+                print("[BG-\(session.sessionId.prefix(8))] Phase 2: Recording saved")
+            } catch {
+                print("[BG-\(session.sessionId.prefix(8))] Phase 2: Save failed: \(error.localizedDescription)")
+            }
+
+            // Phase 2: Enrich
+            if let title = finalizationResult?.title { recording.title = title }
+            if let summaryText = finalizationResult?.summary, !summaryText.isEmpty {
+                recording.summary = Summary(date: session.recordingDate, text: summaryText, recording: recording)
+            }
+            if let insightData = finalizationResult?.insight {
+                let insight = Insight(
+                    date: session.recordingDate,
+                    setting: insightData.setting,
+                    settingEmoji: insightData.settingEmoji,
+                    mood: insightData.mood,
+                    thirdPersonTake: insightData.thirdPersonTake,
+                    correlations: insightData.correlations?.map { InsightCorrelation(memoryDate: $0.memoryDate, connection: $0.connection) } ?? [],
+                    actionableIdeas: insightData.actionableIdeas ?? []
+                )
+                recording.insight = insight
+                insight.recording = recording
+            }
+            try? context.save()
+
+            if let memoryId = finalizationResult?.memoryId {
+                let recordingId = recording.id
+                let descriptor = FetchDescriptor<LocalMemory>(predicate: #Predicate { $0.serverMemoryId == memoryId })
+                if let localMemory = try? context.fetch(descriptor).first {
+                    localMemory.recordingId = recordingId
+                    try? context.save()
+                }
+            }
+        }
+
+        // Cleanup segment files
+        for segmentURL in session.recordingSegments {
+            try? FileManager.default.removeItem(at: segmentURL)
+        }
+        try? FileManager.default.removeItem(at: m4aURL)
+
+        await SubscriptionService.shared.syncUsageFromBackend()
+        print("[BG-\(session.sessionId.prefix(8))] Finalization complete")
+    }
+
+    private func processRecordingSegmentsBackground(session: BackgroundRecordingSession) async {
+        guard let finalURL = await mergeAudioSegmentsFromURLs(session.recordingSegments) else {
+            print("[BG-\(session.sessionId.prefix(8))] No segments to merge")
+            return
+        }
+
+        let labeledTranscript: String
+        do {
+            let (_, segments) = try await deepgramService.transcribeAndDiarize(fileURL: finalURL)
+            labeledTranscript = formatDeepgramTranscript(segments: segments)
+        } catch {
+            print("[BG-\(session.sessionId.prefix(8))] Transcription failed: \(error.localizedDescription)")
+            deleteAudioFile(at: finalURL)
+            return
+        }
+
+        // Search context
+        let contextMemories = await searchLocalContextMemories(
+            query: labeledTranscript.suffix(500).description,
+            limit: 10
+        )
+
+        let chunkRequest = ProcessChunkRequest(
+            recordingSessionId: session.sessionId,
+            chunkIndex: 0,
+            transcript: labeledTranscript,
+            isFinal: true,
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            chunkStartTime: 0,
+            chunkEndTime: session.duration,
+            contextMemories: contextMemories.isEmpty ? nil : contextMemories
+        )
+
+        // Phase 2: Save first
+        var savedRecording: Recording?
+        if let context = session.modelContext {
+            let recording = Recording(date: session.recordingDate, duration: session.duration, title: nil)
+            let transcriptionModel = Transcription(date: session.recordingDate, text: labeledTranscript, recording: recording)
+            recording.transcription = transcriptionModel
+            context.insert(recording)
+            do {
+                try context.save()
+                savedRecording = recording
+                NotificationCenter.default.post(name: .recordingSaved, object: nil, userInfo: ["recordingId": recording.id.uuidString])
+            } catch {
+                print("[BG-\(session.sessionId.prefix(8))] Phase 2: Save failed")
+            }
+        }
+
+        // Send to backend
+        var chunkResult: ChunkProcessResult?
+        do {
+            if let ctx = session.modelContext {
+                chunkResult = try await DataService.shared.processChunk(chunkRequest, transcript: labeledTranscript, context: ctx)
+            }
+        } catch {
+            print("[BG-\(session.sessionId.prefix(8))] Backend failed: \(error.localizedDescription)")
+        }
+
+        // Phase 2: Enrich
+        if let context = session.modelContext, let recording = savedRecording {
+            if let title = chunkResult?.title { recording.title = title }
+            if let summaryText = chunkResult?.summary, !summaryText.isEmpty {
+                recording.summary = Summary(date: session.recordingDate, text: summaryText, recording: recording)
+            }
+            if let insightData = chunkResult?.insight {
+                let insight = Insight(
+                    date: session.recordingDate,
+                    setting: insightData.setting,
+                    settingEmoji: insightData.settingEmoji,
+                    mood: insightData.mood,
+                    thirdPersonTake: insightData.thirdPersonTake,
+                    correlations: insightData.correlations?.map { InsightCorrelation(memoryDate: $0.memoryDate, connection: $0.connection) } ?? [],
+                    actionableIdeas: insightData.actionableIdeas ?? []
+                )
+                recording.insight = insight
+                insight.recording = recording
+            }
+            try? context.save()
+
+            if let memoryId = chunkResult?.memoryId {
+                let recordingId = recording.id
+                let descriptor = FetchDescriptor<LocalMemory>(predicate: #Predicate { $0.serverMemoryId == memoryId })
+                if let localMemory = try? context.fetch(descriptor).first {
+                    localMemory.recordingId = recordingId
+                    try? context.save()
+                }
+            }
+        }
+
+        deleteAudioFile(at: finalURL)
+        await SubscriptionService.shared.syncUsageFromBackend()
+        print("[BG-\(session.sessionId.prefix(8))] Single-chunk finalization complete")
+    }
+
+    /// Merge audio segments from specific URLs (for background sessions)
+    private func mergeAudioSegmentsFromURLs(_ urls: [URL]) async -> URL? {
+        guard !urls.isEmpty else { return nil }
+        if urls.count == 1 {
+            return await exportCAFToM4A(cafURL: urls[0])
+        }
+        // For multiple segments, merge them
+        // Use the existing merge logic but with explicit URLs
+        let tempSegments = recordingSegments
+        recordingSegments = urls
+        let result = await mergeAudioSegments()
+        recordingSegments = tempSegments
+        return result
+    }
 
     // MARK: - Live Activity Management
 
