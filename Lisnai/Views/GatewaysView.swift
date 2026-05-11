@@ -260,14 +260,15 @@ struct GatewaysView: View {
                     expandedId = expandedId == id ? nil : id
                 }
             } label: {
-                HStack(spacing: LisnSpacing.md) {
+                HStack(alignment: .top, spacing: LisnSpacing.md) {
                     Image(logo)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 36, height: 36)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .frame(width: 40, height: 40)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .padding(.top, 2)
 
-                    VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
+                    VStack(alignment: .leading, spacing: LisnSpacing.xs) {
                         HStack(spacing: LisnSpacing.xs) {
                             Text(name)
                                 .font(LisnFont.titleSmall())
@@ -285,21 +286,23 @@ struct GatewaysView: View {
                         }
 
                         Text(description)
-                            .font(LisnFont.caption())
+                            .font(LisnFont.bodySmall())
                             .foregroundColor(LisnColors.textSecondary)
-                            .lineLimit(2)
+                            .lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    Spacer()
+                    Spacer(minLength: LisnSpacing.xs)
 
                     if steps != nil {
                         Image(systemName: expandedId == id ? "chevron.up" : "chevron.down")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(LisnColors.textTertiary)
+                            .padding(.top, 4)
                     }
                 }
-                .padding(LisnSpacing.lg)
+                .padding(.horizontal, LisnSpacing.lg)
+                .padding(.vertical, LisnSpacing.md + 2)
             }
             .buttonStyle(.plain)
 
@@ -308,17 +311,18 @@ struct GatewaysView: View {
                 Divider()
                     .padding(.horizontal, LisnSpacing.lg)
 
-                VStack(alignment: .leading, spacing: LisnSpacing.lg) {
+                VStack(alignment: .leading, spacing: LisnSpacing.xl) {
                     ForEach(Array(steps.enumerated()), id: \.offset) { idx, step in
                         stepRow(index: idx + 1, step: step)
                     }
                 }
-                .padding(LisnSpacing.lg)
+                .padding(.horizontal, LisnSpacing.lg)
+                .padding(.vertical, LisnSpacing.lg)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(LisnColors.bgElevated)
-        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.xl, style: .continuous))
         .shadow(
             color: LisnShadow.sm.color,
             radius: LisnShadow.sm.radius,
