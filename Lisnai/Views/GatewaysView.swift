@@ -71,7 +71,7 @@ struct GatewaysView: View {
                         )
                     }
                 }
-                .padding(.horizontal, LisnSpacing.md)
+                .padding(.horizontal, LisnSpacing.xs) // 8pt slim margins
                 .padding(.bottom, LisnSpacing.xxxl)
             }
             .background(LisnColors.bgPrimary)
