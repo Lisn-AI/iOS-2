@@ -309,8 +309,8 @@ struct SearchResultRow: View {
                     .foregroundColor(LisnColors.textPrimary)
                     .lineLimit(1)
 
-                // Snippet
-                Text(result.transcriptSnippet)
+                // Snippet — strip diarization labels like "[Speaker 1] (0:00 - 0:01): "
+                Text(cleanedSnippet(result.transcriptSnippet))
                     .font(LisnFont.bodySmall())
                     .foregroundColor(LisnColors.textSecondary)
                     .lineLimit(3)
@@ -355,6 +355,22 @@ struct SearchResultRow: View {
         .cornerRadius(LisnRadius.sm)
         .padding(.horizontal)
         .padding(.vertical, 4)
+    }
+
+    /// Remove diarization headers like "[Speaker 1] (0:00 - 1:23): " from transcript snippets
+    private func cleanedSnippet(_ text: String) -> String {
+        // Match patterns: [Speaker N] (H:MM:SS - H:MM:SS): or [Speaker N] (MM:SS - MM:SS):
+        let pattern = #"\[Speaker \d+\]\s*\(\d+:\d+(?::\d+)?\s*-\s*\d+:\d+(?::\d+)?\):\s*"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        let cleaned = regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
+        // Collapse multiple newlines and trim
+        return cleaned
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
     }
 
     private var relevanceColor: Color {
@@ -418,6 +434,22 @@ class MemorySearchViewModel: ObservableObject {
     }
 
     func findRecording(for result: SearchResult, context: ModelContext) -> Recording? {
+        // Step 1: Find LocalMemory by serverMemoryId — has direct recordingId link
+        let memId = result.memoryId
+        let memDescriptor = FetchDescriptor<LocalMemory>(
+            predicate: #Predicate { $0.serverMemoryId == memId }
+        )
+        if let localMemory = try? context.fetch(memDescriptor).first,
+           let recordingId = localMemory.recordingId {
+            let recDescriptor = FetchDescriptor<Recording>(
+                predicate: #Predicate { $0.id == recordingId }
+            )
+            if let recording = try? context.fetch(recDescriptor).first {
+                return recording
+            }
+        }
+
+        // Step 2: Date-proximity fallback for legacy memories without recordingId
         guard let ts = result.timestamp,
               let date = ISO8601DateFormatter().date(from: ts) else { return nil }
 
@@ -431,15 +463,6 @@ class MemorySearchViewModel: ObservableObject {
         )
         guard let recordings = try? context.fetch(descriptor) else { return nil }
 
-        // Try transcript match first
-        let snippet = String(result.transcriptSnippet.prefix(100))
-        if let match = recordings.first(where: {
-            $0.transcription?.text.contains(snippet) == true
-        }) {
-            return match
-        }
-
-        // Fallback: closest by time
         return recordings.min(by: {
             abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date))
         })

@@ -1,5 +1,4 @@
 import SwiftUI
-import Vortex
 
 /// Screen 4: Interactive demo — real recording + live transcript + executable actions
 struct OnboardingDemoScreen: View {
@@ -196,41 +195,15 @@ struct OnboardingDemoScreen: View {
             .frame(height: 60)
             .allowsHitTesting(false)
 
-            // Glowing progress ring
-            ZStack {
-                Circle()
-                    .fill(LisnColors.accent.opacity(0.12))
-                    .frame(width: 80, height: 80)
-                    .blur(radius: 20)
-
-                Circle()
-                    .stroke(LisnColors.accent.opacity(0.1), lineWidth: 3)
-                    .frame(width: 56, height: 56)
-
-                Circle()
-                    .trim(from: 0, to: progress)
-                    .stroke(
-                        LinearGradient(
-                            colors: [LisnColors.orbLight, LisnColors.accent],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
-                    )
-                    .frame(width: 56, height: 56)
-                    .rotationEffect(.degrees(-90))
-                    .shadow(color: LisnColors.accent.opacity(0.3), radius: 6)
-
-                Text("\(Int(progress * 100))%")
-                    .font(.custom("Inter-SemiBold", size: 13))
-                    .foregroundColor(LisnColors.textSecondary)
-            }
-
-            Text(statusTexts[min(statusIndex, statusTexts.count - 1)])
-                .font(.custom("Inter-Medium", size: 15))
-                .foregroundColor(LisnColors.textSecondary)
-                .opacity(statusOpacity)
-                .animation(.easeInOut(duration: 0.3), value: statusIndex)
+            // Designed progress ring (no floating numbers — see DESIGN.md Part 5)
+            LisnProgressRing(
+                progress: Double(progress),
+                size: 96,
+                caption: statusTexts[min(statusIndex, statusTexts.count - 1)],
+                isAnimating: true
+            )
+            .opacity(statusOpacity)
+            .animation(.easeInOut(duration: 0.3), value: statusIndex)
 
             Spacer()
         }
@@ -241,18 +214,7 @@ struct OnboardingDemoScreen: View {
 
     private var resultsView: some View {
         VStack(spacing: 0) {
-            if celebrate {
-                VortexView(createConfettiSystem()) {
-                    Rectangle()
-                        .fill(LisnColors.accent)
-                        .frame(width: 8, height: 8)
-                        .tag("confetti")
-                }
-                .frame(height: 80)
-                .allowsHitTesting(false)
-            }
-
-            // Results card
+            // Results card (celebration shimmer wraps it — replaces Vortex confetti)
             VStack(alignment: .leading, spacing: 0) {
                 // Header
                 HStack {
@@ -347,6 +309,7 @@ struct OnboardingDemoScreen: View {
             .padding(.horizontal, 24)
             .opacity(showResults ? 1 : 0)
             .offset(y: showResults ? 0 : 40)
+            .lisnCelebration(isActive: $celebrate, showCheckmark: false, cornerRadius: 20)
 
             if showScrollHint {
                 Text("SCROLL TO CONTINUE")
@@ -561,24 +524,6 @@ struct OnboardingDemoScreen: View {
             UIApplication.shared.open(url)
         }
     }
-}
-
-// MARK: - Confetti System
-
-private func createConfettiSystem() -> VortexSystem {
-    var system = VortexSystem(tags: ["confetti"])
-    system.position = [0.5, 0]
-    system.speed = 0.6
-    system.speedVariation = 0.3
-    system.angle = .degrees(180)
-    system.angleRange = .degrees(50)
-    system.birthRate = 30
-    system.lifespan = 3.0
-    system.lifespanVariation = 0.5
-    system.size = 0.6
-    system.sizeVariation = 0.3
-    system.sizeMultiplierAtDeath = 0
-    return system
 }
 
 #Preview {

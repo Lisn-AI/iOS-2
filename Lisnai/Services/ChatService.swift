@@ -43,6 +43,16 @@ class ChatService: ObservableObject {
 
     /// Send a message with optional recording context and stream the response
     func sendMessageWithContext(_ content: String, context: String?, chatMode: String = "main") async {
+        AnalyticsService.shared.track(.chatMessageSent, properties: [
+            "mode": chatMode,
+            "message_length": content.count
+        ])
+        if chatMode == "main" {
+            AnalyticsService.shared.track(.memorySearched, properties: [
+                "query_length": content.count
+            ])
+        }
+
         // Add user message
         let userMessage = ChatMessage(content: content, isUser: true, recordingId: recordingId)
         messages.append(userMessage)

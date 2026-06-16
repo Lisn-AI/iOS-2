@@ -12,6 +12,9 @@ final class Recording {
     /// AI-generated descriptive title for this recording
     var title: String?
 
+    /// LLM-assigned icon category for animated Lottie display
+    var icon: String?
+
     /// Relationship to transcription (deleted when recording is deleted)
     @Relationship(deleteRule: .cascade, inverse: \Transcription.recording)
     var transcription: Transcription?

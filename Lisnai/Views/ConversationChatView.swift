@@ -172,7 +172,7 @@ struct ConversationChatView: View {
                 .multilineTextAlignment(.center)
 
             if let summary = recording.summary {
-                Markdown(summary.text)
+                Markdown(summary.text.lisnNormalizedMarkdown)
                     .markdownTheme(.lisnAI)
                     .markdownCodeSyntaxHighlighter(.plain)
                     .padding(.horizontal, LisnSpacing.md)

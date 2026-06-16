@@ -34,7 +34,13 @@ struct SettingsView: View {
             // Upgrade Card (for non-max users)
             if !subscriptionService.isMax {
                 Section {
-                    Button(action: { showPaywall = true }) {
+                    Button(action: {
+                        AnalyticsService.shared.track(.paywallShown, properties: [
+                            "placement": "settings_upgrade_card",
+                            "current_tier": subscriptionService.tier.rawValue
+                        ])
+                        showPaywall = true
+                    }) {
                         HStack(spacing: LisnSpacing.sm) {
                             Image(systemName: "crown.fill")
                                 .font(.system(size: 24))
@@ -409,6 +415,7 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
         .toolbarBackground(LisnColors.bgPrimary, for: .navigationBar)
+        .onAppear { AnalyticsService.shared.track(.settingsOpened) }
         .sheet(isPresented: $showBriefings) {
             BriefingsView()
         }

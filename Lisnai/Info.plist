@@ -25,7 +25,7 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.303903781890-0rfihh50t3a80kf9vemig983pife9trh</string>
+				<string>com.googleusercontent.apps.303903781890-eced8pa2atn11obulio8l812qv8bcgfi</string>
 			</array>
 		</dict>
 		<dict>
@@ -39,6 +39,8 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>17.0</string>
+	<key>MixpanelToken</key>
+	<string>1d2ce818788cab22eae0273d26b83d49</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Lisnai creates calendar events from your conversations to help you stay organized.</string>
 	<key>NSCalendarsUsageDescription</key>

@@ -252,53 +252,81 @@ struct GatewaysView: View {
         badge: String? = nil,
         steps: [SetupStep]?
     ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let isExpanded = expandedId == id
+
+        return VStack(alignment: .leading, spacing: 0) {
             // Header
             Button {
                 guard steps != nil else { return }
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    expandedId = expandedId == id ? nil : id
+                LisnHaptics.light()
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    expandedId = isExpanded ? nil : id
                 }
             } label: {
-                HStack(alignment: .top, spacing: LisnSpacing.md) {
-                    Image(logo)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 40, height: 40)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .padding(.top, 2)
+                HStack(alignment: .center, spacing: LisnSpacing.md) {
+                    // Logo in brand-tinted gradient container
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        LisnColors.accent.opacity(0.14),
+                                        LisnColors.accent.opacity(0.04),
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(LisnColors.accent.opacity(0.12), lineWidth: 0.5)
+                            )
 
-                    VStack(alignment: .leading, spacing: LisnSpacing.xs) {
+                        Image(logo)
+                            .resizable()
+                            .scaledToFit()
+                            .padding(10)
+                    }
+                    .frame(width: 52, height: 52)
+
+                    VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: LisnSpacing.xs) {
                             Text(name)
                                 .font(LisnFont.titleSmall())
                                 .foregroundColor(LisnColors.textPrimary)
 
                             if let badge {
-                                Text(badge)
+                                Text(badge.uppercased())
                                     .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(LisnColors.accent)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(LisnColors.accent.opacity(0.1))
-                                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.xs, style: .continuous))
+                                    .tracking(0.6)
+                                    .foregroundColor(LisnColors.warning)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(LisnColors.warning.opacity(0.12))
+                                    .clipShape(Capsule())
                             }
                         }
 
                         Text(description)
                             .font(LisnFont.bodySmall())
                             .foregroundColor(LisnColors.textSecondary)
-                            .lineLimit(3)
+                            .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Spacer(minLength: LisnSpacing.xs)
 
                     if steps != nil {
-                        Image(systemName: expandedId == id ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(LisnColors.textTertiary)
-                            .padding(.top, 4)
+                        ZStack {
+                            Circle()
+                                .fill(LisnColors.bgSecondary)
+                                .frame(width: 28, height: 28)
+
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(LisnColors.textSecondary)
+                                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                        }
                     }
                 }
                 .padding(.horizontal, LisnSpacing.lg)
@@ -307,8 +335,21 @@ struct GatewaysView: View {
             .buttonStyle(.plain)
 
             // Expanded steps
-            if expandedId == id, let steps {
-                Divider()
+            if isExpanded, let steps {
+                // Brand-tinted hairline divider
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.clear,
+                                LisnColors.accent.opacity(0.18),
+                                Color.clear,
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(height: 1)
                     .padding(.horizontal, LisnSpacing.lg)
 
                 VStack(alignment: .leading, spacing: LisnSpacing.xl) {
@@ -321,26 +362,52 @@ struct GatewaysView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LisnColors.bgElevated)
-        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.xl, style: .continuous))
-        .shadow(
-            color: LisnShadow.sm.color,
-            radius: LisnShadow.sm.radius,
-            x: LisnShadow.sm.x,
-            y: LisnShadow.sm.y
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: LisnRadius.xl, style: .continuous)
+                    .fill(LisnColors.bgElevated)
+
+                // Subtle warm wash — top-leading amber → transparent
+                LinearGradient(
+                    stops: [
+                        .init(color: LisnColors.accent.opacity(0.04), location: 0),
+                        .init(color: Color.clear, location: 0.65),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .clipShape(RoundedRectangle(cornerRadius: LisnRadius.xl, style: .continuous))
+
+                // Hairline border
+                RoundedRectangle(cornerRadius: LisnRadius.xl, style: .continuous)
+                    .strokeBorder(LisnColors.border.opacity(0.6), lineWidth: 0.5)
+            }
         )
+        .shadow(color: Color.black.opacity(0.04), radius: 12, x: 0, y: 4)
+        .shadow(color: LisnColors.accent.opacity(isExpanded ? 0.08 : 0), radius: 16, x: 0, y: 6)
     }
 
     // MARK: - Step Row
 
     private func stepRow(index: Int, step: SetupStep) -> some View {
         HStack(alignment: .top, spacing: LisnSpacing.sm) {
-            Text("\(index)")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundColor(LisnColors.accent)
-                .frame(width: 22, height: 22)
-                .background(LisnColors.accent.opacity(0.1))
-                .clipShape(Circle())
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [LisnColors.orbLight, LisnColors.orbDark],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 24, height: 24)
+                    .shadow(color: LisnColors.accent.opacity(0.35), radius: 4, x: 0, y: 2)
+
+                Text("\(index)")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+            }
+            .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: LisnSpacing.xs) {
                 Text(step.title)
@@ -351,9 +418,11 @@ struct GatewaysView: View {
                     .font(LisnFont.caption())
                     .foregroundColor(LisnColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(2)
 
                 if let code = step.code {
                     codeSnippet(code)
+                        .padding(.top, 2)
                 }
             }
         }
@@ -362,33 +431,53 @@ struct GatewaysView: View {
     // MARK: - Code Snippet
 
     private func codeSnippet(_ code: String) -> some View {
-        VStack(alignment: .trailing, spacing: 0) {
-            Button {
-                UIPasteboard.general.string = code
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 9, weight: .medium))
-                    Text("Copy")
-                        .font(.system(size: 10, weight: .medium))
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: LisnSpacing.xs) {
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(LisnColors.textTertiary)
+
+                Spacer()
+
+                Button {
+                    UIPasteboard.general.string = code
+                    LisnHaptics.light()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("Copy")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(LisnColors.accent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(LisnColors.accent.opacity(0.12))
+                    .clipShape(Capsule())
                 }
-                .foregroundColor(LisnColors.textTertiary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, LisnSpacing.sm)
+            .padding(.top, LisnSpacing.xs)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(Color(red: 0.25, green: 0.27, blue: 0.29))
+                    .foregroundColor(Color(red: 0.18, green: 0.20, blue: 0.22))
                     .padding(.horizontal, LisnSpacing.sm)
+                    .padding(.top, LisnSpacing.xxs)
                     .padding(.bottom, LisnSpacing.sm)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LisnColors.bgSecondary)
-        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(LisnColors.bgPrimary)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(LisnColors.border.opacity(0.5), lineWidth: 0.5)
+                )
+        )
     }
 
     // MARK: - Setup Data

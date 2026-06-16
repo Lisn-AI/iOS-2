@@ -22,6 +22,7 @@ struct HomeView: View {
     @State private var showDiscardAlert = false
     @State private var expandedRecordingId: UUID? // tracks which card is expanded
     @State private var sessionRecordingIds: [UUID] = [] // recordings made THIS app session
+    @State private var scrollOffset: CGFloat = 0 // drives collapsing hero
     @Query(sort: \Recording.createdAt, order: .reverse) private var recentRecordings: [Recording]
 
     /// Recordings made in this app session only (not from history)
@@ -201,43 +202,107 @@ struct HomeView: View {
     @State private var pullOffset: CGFloat = 0
     private let dismissThreshold: CGFloat = 120
 
+    /// Progress 0...1 mapping scroll offset over the hero height — drives hero collapse.
+    /// Threshold matches the expanded hero region so it fully disappears as the user
+    /// scrolls past it.
+    private var heroProgress: CGFloat {
+        let threshold: CGFloat = 140
+        return min(max(scrollOffset / threshold, 0), 1)
+    }
+
     private var resultsLayout: some View {
         VStack(spacing: 0) {
-            // Pull-to-dismiss handle — wide touch target
-            VStack(spacing: LisnSpacing.xs) {
-                Capsule()
-                    .fill(LisnColors.textTertiary.opacity(0.4))
-                    .frame(width: 40, height: 5)
+            // Pull-to-dismiss handle — wide touch target, stays outside scroll
+            pullToDismissHandle
+                .padding(.top, LisnSpacing.xs)
 
-                Text("Pull down to dismiss")
-                    .font(.system(size: 10))
-                    .foregroundColor(LisnColors.textTertiary.opacity(pullOffset > 20 ? 1 : 0))
+            // Processing pill stays above the scroll for visibility
+            if recordingManager.isProcessing || recordingManager.backgroundProcessingCount > 0 {
+                processingPill
+                    .padding(.horizontal, LisnSpacing.lg)
+                    .padding(.bottom, LisnSpacing.xs)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 36)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        if value.translation.height > 0 {
-                            pullOffset = value.translation.height
-                        }
-                    }
-                    .onEnded { value in
-                        if value.translation.height > dismissThreshold {
-                            LisnHaptics.light()
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                                dismissedResults = true
-                            }
-                        }
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            pullOffset = 0
-                        }
-                    }
-            )
-            .padding(.top, LisnSpacing.xs)
 
-            // Compact orb
+            // Scrollable area — hero is INSIDE the scroll so it scrolls away naturally,
+            // with extra scale/opacity for a Spotify-style parallax-collapse feel.
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    // Invisible scroll-offset tracker — first child of scroll content
+                    GeometryReader { geo in
+                        Color.clear.preference(
+                            key: HomeScrollOffsetKey.self,
+                            value: -geo.frame(in: .named("homeScroll")).minY
+                        )
+                    }
+                    .frame(height: 0)
+
+                    // Collapsing hero — scrolls away with content
+                    collapsingHero
+
+                    VStack(spacing: LisnSpacing.md) {
+                        if showStackedCards {
+                            // Multiple concurrent recordings queued up — stacked header cards,
+                            // one expanded with its section cards beneath.
+                            ForEach(sessionRecordings) { recording in
+                                let isExpanded = expandedRecordingId == recording.id || (expandedRecordingId == nil && recording.id == sessionRecordings.first?.id)
+
+                                recordingGroup(recording: recording, isExpanded: isExpanded)
+                            }
+                        } else if let recording = sessionRecordings.first {
+                            // Single session recording — show from SwiftData
+                            recordingGroup(recording: recording, isExpanded: true)
+                        } else if !recordingManager.transcription.isEmpty {
+                            // Fallback: show from recordingManager (still processing, not yet in SwiftData)
+                            TranscriptionCard(
+                                transcription: recordingManager.transcription,
+                                duration: recordingManager.recordingDuration
+                            )
+
+                            if !recordingManager.summary.isEmpty {
+                                summaryCard
+                            }
+
+                            if let latestInsight = recentRecordings.first?.insight {
+                                InsightCard(insight: latestInsight)
+                            }
+                        } else if recordingManager.backgroundProcessingCount > 0 {
+                            // Background sessions processing but nothing in SwiftData yet
+                            VStack(spacing: LisnSpacing.sm) {
+                                ProgressView()
+                                Text("Processing your recording...")
+                                    .font(LisnFont.bodyMedium())
+                                    .foregroundColor(LisnColors.textSecondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, LisnSpacing.xxl)
+                        }
+                    }
+                    .padding(.horizontal, LisnSpacing.sm) // 12pt — near-edge with breathing room
+                    .padding(.bottom, LisnSpacing.xxl)
+                }
+            }
+            .coordinateSpace(name: "homeScroll")
+            .onPreferenceChange(HomeScrollOffsetKey.self) { newOffset in
+                scrollOffset = max(0, newOffset)
+            }
+        }
+        .offset(y: pullOffset * 0.3) // Rubber-band effect while pulling
+    }
+
+    // MARK: - Collapsing Hero
+    //
+    // Sits as the first item inside the ScrollView so it scrolls away naturally.
+    // Additionally scales/fades based on scroll progress for a parallax-collapse feel.
+    // Fully disappears (scale 0, opacity 0, height 0) once the user has scrolled past
+    // the hero region — content takes over the entire screen.
+
+    private var collapsingHero: some View {
+        let orbScale = max(0, 0.55 * (1 - heroProgress))       // 0.55 → 0
+        let containerHeight = max(0, 100 * (1 - heroProgress)) // 100 → 0
+        let captionOpacity = max(0, 1 - heroProgress * 2.2)    // fades faster than orb
+
+        return VStack(spacing: 0) {
             RecordingOrb(
                 isRecording: isRecording,
                 audioLevel: recordingManager.audioLevel,
@@ -245,175 +310,208 @@ struct HomeView: View {
                 isCallPaused: recordingManager.isPausedForCall,
                 action: toggleRecording
             )
-            .scaleEffect(0.55)
-            .frame(height: 72)
-            .padding(.top, LisnSpacing.xxs)
+            .scaleEffect(orbScale, anchor: .center)
+            .opacity(1 - heroProgress)
+            .frame(height: containerHeight)
+            .allowsHitTesting(heroProgress < 0.5)
 
             Text("Tap to record again")
                 .font(LisnFont.caption())
                 .foregroundColor(LisnColors.textTertiary)
-                .padding(.bottom, LisnSpacing.md)
-
-            // Processing pill (shows when recordings are being processed in background)
-            if recordingManager.isProcessing || recordingManager.backgroundProcessingCount > 0 {
-                processingPill
-                    .padding(.horizontal, LisnSpacing.lg)
-                    .padding(.bottom, LisnSpacing.sm)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            }
-
-            // Scrollable results
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: LisnSpacing.md) {
-                    if showStackedCards {
-                        // Multiple concurrent recordings — show stacked cards
-                        ForEach(sessionRecordings) { recording in
-                            let isExpanded = expandedRecordingId == recording.id || (expandedRecordingId == nil && recording.id == sessionRecordings.first?.id)
-
-                            recordingCard(recording: recording, isExpanded: isExpanded)
-                                .onTapGesture {
-                                    guard !isExpanded else { return }
-                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                                        expandedRecordingId = recording.id
-                                    }
-                                    LisnHaptics.light()
-                                }
-                        }
-                    } else if let recording = sessionRecordings.first {
-                        // Single session recording — show from SwiftData
-                        recordingCard(recording: recording, isExpanded: true)
-                    } else if !recordingManager.transcription.isEmpty {
-                        // Fallback: show from recordingManager (still processing, not yet in SwiftData)
-                        TranscriptionCard(
-                            transcription: recordingManager.transcription,
-                            duration: recordingManager.recordingDuration
-                        )
-
-                        if !recordingManager.summary.isEmpty {
-                            summaryCard
-                        }
-
-                        if let latestInsight = recentRecordings.first?.insight {
-                            InsightCard(insight: latestInsight)
-                        }
-                    } else if recordingManager.backgroundProcessingCount > 0 {
-                        // Background sessions processing but nothing in SwiftData yet
-                        VStack(spacing: LisnSpacing.sm) {
-                            ProgressView()
-                            Text("Processing your recording...")
-                                .font(LisnFont.bodyMedium())
-                                .foregroundColor(LisnColors.textSecondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, LisnSpacing.xxl)
-                    }
-                }
-                .padding(.horizontal, LisnSpacing.lg)
-                .padding(.bottom, LisnSpacing.xxl)
-            }
+                .opacity(captionOpacity)
+                .frame(height: max(0, 20 * (1 - heroProgress)))
         }
-        .offset(y: pullOffset * 0.3) // Rubber-band effect while pulling
+        .clipped()
+        .padding(.top, max(0, LisnSpacing.xxs * (1 - heroProgress)))
+        .padding(.bottom, max(0, LisnSpacing.md * (1 - heroProgress)))
     }
 
-    // MARK: - Recording Card (expanded/collapsed)
+    private var pullToDismissHandle: some View {
+        VStack(spacing: LisnSpacing.xs) {
+            Capsule()
+                .fill(LisnColors.textTertiary.opacity(0.4))
+                .frame(width: 40, height: 5)
 
-    @ViewBuilder
-    private func recordingCard(recording: Recording, isExpanded: Bool) -> some View {
-        VStack(alignment: .leading, spacing: isExpanded ? LisnSpacing.lg : LisnSpacing.xs) {
-            // Header
-            HStack(spacing: LisnSpacing.sm) {
-                // Icon
-                Image(systemName: "waveform")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(LisnColors.accent)
-                    .frame(width: 32, height: 32)
-                    .background(LisnColors.accent.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
-
-                VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
-                    Text(recording.title ?? "Recording at \(recording.date.formatted(date: .omitted, time: .shortened))")
-                        .font(LisnFont.titleSmall())
-                        .foregroundColor(LisnColors.textPrimary)
-                        .lineLimit(isExpanded ? 3 : 1)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    HStack(spacing: LisnSpacing.xs) {
-                        Text(formatDuration(recording.duration))
-                            .font(LisnFont.caption())
-                            .foregroundColor(LisnColors.textTertiary)
-
-                        if !isExpanded {
-                            Text("\u{2022}")
-                                .font(LisnFont.caption())
-                                .foregroundColor(LisnColors.textTertiary)
-
-                            Text(recording.date.formatted(date: .omitted, time: .shortened))
-                                .font(LisnFont.caption())
-                                .foregroundColor(LisnColors.textTertiary)
-                        }
-
-                        if recording.title == nil {
-                            HStack(spacing: 4) {
-                                ProgressView()
-                                    .scaleEffect(0.6)
-                                Text("Processing...")
-                                    .font(LisnFont.caption())
-                                    .foregroundColor(LisnColors.accent)
-                            }
-                        }
+            Text("Pull down to dismiss")
+                .font(.system(size: 10))
+                .foregroundColor(LisnColors.textTertiary.opacity(pullOffset > 20 ? 1 : 0))
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 36)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if value.translation.height > 0 {
+                        pullOffset = value.translation.height
                     }
                 }
-
-                Spacer()
-
-                if !isExpanded {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(LisnColors.textTertiary)
+                .onEnded { value in
+                    if value.translation.height > dismissThreshold {
+                        LisnHaptics.light()
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                            dismissedResults = true
+                        }
+                    }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        pullOffset = 0
+                    }
                 }
-            }
+        )
+    }
 
-            // Expanded content
+    // MARK: - Recording Group (header + section cards)
+    //
+    // Each recording renders as a vertical group of glass cards:
+    //   - Header card (always shown) — icon, title, meta, processing badge
+    //   - Transcript card (when expanded, transcript exists)
+    //   - Summary card (when expanded, summary exists)
+    //   - Insight card (when expanded, insight exists)
+    //
+    // Multiple concurrent recordings queue up as stacked header cards; tapping
+    // a collapsed header expands that recording (and collapses the previously
+    // expanded one).
+
+    @ViewBuilder
+    private func recordingGroup(recording: Recording, isExpanded: Bool) -> some View {
+        VStack(spacing: LisnSpacing.sm) {
+            recordingHeaderCard(recording: recording, isExpanded: isExpanded)
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        expandedRecordingId = isExpanded ? nil : recording.id
+                    }
+                    LisnHaptics.light()
+                }
+
             if isExpanded {
-                Divider()
-                    .padding(.vertical, LisnSpacing.xxs)
-
                 if let transcript = recording.transcription?.text, !transcript.isEmpty {
-                    TranscriptionCard(transcription: transcript, duration: formatDuration(recording.duration))
+                    transcriptSectionCard(transcript: transcript, duration: recording.duration)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
                 if let summaryText = recording.summary?.text, !summaryText.isEmpty {
-                    VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-                        HStack(spacing: LisnSpacing.xs) {
-                            Image(systemName: "text.alignleft")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(LisnColors.accent)
-                            Text("Summary")
-                                .font(LisnFont.labelLarge())
-                                .foregroundColor(LisnColors.textPrimary)
-                        }
-                        Markdown(summaryText)
-                            .markdownTheme(.lisnContent)
-                    }
-                    .padding(LisnSpacing.md)
-                    .background(LisnColors.bgSecondary.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+                    summarySectionCard(summary: summaryText)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
                 if let insight = recording.insight {
-                    InsightCard(insight: insight)
+                    insightSectionCard(insight: insight)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         }
-        .padding(isExpanded ? LisnSpacing.lg : LisnSpacing.md)
-        .background(LisnColors.bgElevated)
-        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
-        .shadow(
-            color: isExpanded ? LisnShadow.md.color : LisnShadow.sm.color,
-            radius: isExpanded ? LisnShadow.md.radius : LisnShadow.sm.radius,
-            x: 0, y: isExpanded ? LisnShadow.md.y : LisnShadow.sm.y
-        )
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isExpanded)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: isExpanded)
+    }
+
+    // MARK: - Section Cards (glass surfaces)
+
+    @ViewBuilder
+    private func recordingHeaderCard(recording: Recording, isExpanded: Bool) -> some View {
+        HStack(spacing: LisnSpacing.sm) {
+            // Animated Lottie icon or fallback
+            RecordingIconView(recording: recording, size: 38)
+                .clipShape(RoundedRectangle(cornerRadius: LisnRadius.sm, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(recording.title ?? "Recording at \(recording.date.formatted(date: .omitted, time: .shortened))")
+                    .font(LisnFont.titleSmall())
+                    .foregroundColor(LisnColors.textPrimary)
+                    .lineLimit(isExpanded ? 3 : 1)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: LisnSpacing.xs) {
+                    Text(formatDuration(recording.duration))
+                        .font(LisnFont.caption())
+                        .foregroundColor(LisnColors.textTertiary)
+
+                    Text("\u{2022}")
+                        .font(LisnFont.caption())
+                        .foregroundColor(LisnColors.textTertiary)
+
+                    Text(recording.date.formatted(date: .omitted, time: .shortened))
+                        .font(LisnFont.caption())
+                        .foregroundColor(LisnColors.textTertiary)
+
+                    if recording.title == nil {
+                        HStack(spacing: 4) {
+                            ProgressView()
+                                .scaleEffect(0.55)
+                            Text("Processing")
+                                .font(LisnFont.caption())
+                                .foregroundColor(LisnColors.accent)
+                        }
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Chevron in circular touch target, rotates when expanded
+            ZStack {
+                Circle()
+                    .fill(LisnColors.bgSecondary.opacity(0.6))
+                    .frame(width: 26, height: 26)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(LisnColors.textSecondary)
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+            }
+        }
+        .padding(LisnSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .lisnGlassSurface(cornerRadius: LisnRadius.xl)
+    }
+
+    @ViewBuilder
+    private func transcriptSectionCard(transcript: String, duration: TimeInterval) -> some View {
+        VStack(alignment: .leading, spacing: LisnSpacing.sm) {
+            sectionHeader(icon: "text.quote", title: "Transcript", accessory: formatDuration(duration))
+
+            FormattedTranscriptionView(text: transcript)
+        }
+        .padding(LisnSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .lisnGlassSurface(cornerRadius: LisnRadius.xl)
+    }
+
+    @ViewBuilder
+    private func summarySectionCard(summary: String) -> some View {
+        VStack(alignment: .leading, spacing: LisnSpacing.sm) {
+            sectionHeader(icon: "sparkles", title: "Summary")
+
+            Markdown(summary.lisnNormalizedMarkdown)
+                .markdownTheme(.lisnContent)
+        }
+        .padding(LisnSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .lisnGlassSurface(cornerRadius: LisnRadius.xl)
+    }
+
+    @ViewBuilder
+    private func insightSectionCard(insight: Insight) -> some View {
+        InsightCard(insight: insight)
+    }
+
+    @ViewBuilder
+    private func sectionHeader(icon: String, title: String, accessory: String? = nil) -> some View {
+        HStack(spacing: LisnSpacing.xs) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(LisnColors.accent)
+
+            Text(title)
+                .font(LisnFont.labelLarge())
+                .foregroundColor(LisnColors.textPrimary)
+
+            Spacer()
+
+            if let accessory {
+                Text(accessory)
+                    .font(LisnFont.caption())
+                    .foregroundColor(LisnColors.textTertiary)
+            }
+        }
     }
 
     // MARK: - Processing Pill
@@ -661,7 +759,7 @@ struct HomeView: View {
                     .font(.system(size: 14))
             }
 
-            Markdown(recordingManager.summary)
+            Markdown(recordingManager.summary.lisnNormalizedMarkdown)
                 .markdownTheme(.lisnContent)
         }
         .padding(LisnSpacing.md)
@@ -757,5 +855,14 @@ struct HomeView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Scroll Offset Tracking
+
+private struct HomeScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }

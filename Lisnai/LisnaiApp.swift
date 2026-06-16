@@ -17,6 +17,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Configure RevenueCat for subscriptions
         SubscriptionService.shared.configure()
 
+        // Configure Mixpanel product analytics
+        Task { @MainActor in
+            AnalyticsService.shared.configure()
+            AnalyticsService.shared.track(.appOpened, properties: [
+                "cold_start": launchOptions == nil
+            ])
+        }
+
         // Set up push notifications with enhanced service
         setupPushNotifications(application)
 

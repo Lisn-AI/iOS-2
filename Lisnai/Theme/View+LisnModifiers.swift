@@ -17,6 +17,36 @@ extension View {
             )
     }
 
+    /// Glass surface for content cards.
+    /// iOS 26: native `.glassEffect` (Liquid Glass, refractive translucent).
+    /// iOS 17 fallback: `.ultraThinMaterial` + hairline border + subtle shadow.
+    /// Apply this as the LAST modifier (per HIG: glass effects must be terminal).
+    @ViewBuilder
+    func lisnGlassSurface(cornerRadius: CGFloat = LisnRadius.xl) -> some View {
+        if #available(iOS 26.0, *) {
+            self
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(LisnColors.bgElevated.opacity(0.4))
+                )
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        } else {
+            self
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.5), lineWidth: 0.5)
+                        .blendMode(.overlay)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.black.opacity(0.06), lineWidth: 0.5)
+                )
+                .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 4)
+        }
+    }
+
     func lisnSectionHeader() -> some View {
         self
             .font(LisnFont.labelLarge())

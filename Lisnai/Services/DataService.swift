@@ -95,17 +95,42 @@ class DataService: ObservableObject {
         modelContext: ModelContext? = nil,
         userName: String? = nil
     ) async throws -> AsyncStream<APIService.ChatStreamEvent> {
-        // Always search local memories to send as context
+        // Multi-strategy local retrieval — same source of truth as History page
         if let ctx = modelContext {
-            print("[DataService] chatStream — searching local memories to send as context")
-            let localResults = await localSearch.searchMemories(
+            print("[DataService] chatStream — multi-strategy local retrieval")
+
+            // Strategy 1: ALWAYS include 3 most recent recordings (same source as History)
+            let recentResults = localSearch.recentRecordingsAsContext(limit: 3, context: ctx)
+
+            // Strategy 2: Temporal search (date-range from Recording + LocalMemory)
+            let temporalResults = localSearch.temporalSearch(query: message, context: ctx)
+
+            // Strategy 3: Semantic vector search (from LocalMemory embeddings)
+            let vectorResults = await localSearch.searchMemories(
                 query: message,
                 limit: 25,
-                threshold: 0.25,  // Backend does fine-grained filtering; send more raw candidates
+                threshold: 0.25,
                 context: ctx
             )
 
-            let localPayloads = localResults.map { result in
+            // Merge all strategies: vector first (highest quality), then temporal, then recent
+            // Deduplicate by memory UUID to avoid sending duplicates
+            var seenIds = Set<UUID>()
+            var allResults: [LocalSearchService.LocalSearchResult] = []
+
+            for r in vectorResults where seenIds.insert(r.memory.id).inserted {
+                allResults.append(r)
+            }
+            for r in temporalResults where seenIds.insert(r.memory.id).inserted {
+                allResults.append(r)
+            }
+            for r in recentResults where seenIds.insert(r.memory.id).inserted {
+                allResults.append(r)
+            }
+
+            print("[DataService] chatStream — merged: \(allResults.count) (vector=\(vectorResults.count), temporal=\(temporalResults.count), recent=\(recentResults.count))")
+
+            let localPayloads = allResults.map { result in
                 LocalMemoryPayload(
                     id: result.memory.serverMemoryId ?? result.memory.id.uuidString,
                     rawTranscript: result.memory.rawTranscript,
@@ -191,14 +216,16 @@ class DataService: ObservableObject {
         return response
     }
 
-    /// Get local suggestions
+    /// Get local suggestions, sorted by relevance (urgency + confidence + recency)
+    /// rather than pure chronological order. High-urgency or high-confidence
+    /// items surface above a 3-day-old pattern_insight.
     func getLocalSuggestions(status: String = "pending", context: ModelContext) -> [LocalSuggestion] {
         let predicate = #Predicate<LocalSuggestion> { $0.status == status }
-        let descriptor = FetchDescriptor(
-            predicate: predicate,
-            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-        )
-        return (try? context.fetch(descriptor)) ?? []
+        let descriptor = FetchDescriptor(predicate: predicate)
+        let all = (try? context.fetch(descriptor)) ?? []
+        return all.sorted { lhs, rhs in
+            lhs.relevanceScore > rhs.relevanceScore
+        }
     }
 
     // MARK: - Briefings

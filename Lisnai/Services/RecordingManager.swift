@@ -689,6 +689,10 @@ class RecordingManager: NSObject, ObservableObject {
         //     return
         // }
 
+        AnalyticsService.shared.track(.recordingStarted, properties: [
+            "source": "home"
+        ])
+
         // Setup audio session before first recording
         do {
             try setupAudioSessionIfNeeded()
@@ -806,6 +810,13 @@ class RecordingManager: NSObject, ObservableObject {
     }
 
     func stopRecording() {
+        let chunkCount = currentChunkIndex + 1
+        AnalyticsService.shared.track(.recordingCompleted, properties: [
+            "duration_display": recordingDuration,
+            "chunk_count": chunkCount
+        ])
+        AnalyticsService.shared.incrementUserProperty("recordings_count_lifetime")
+
         // Stop chunk timer
         chunkTimer?.invalidate()
         chunkTimer = nil
@@ -1079,6 +1090,9 @@ class RecordingManager: NSObject, ObservableObject {
             if let context = modelContext, let recording = savedRecording {
                 if let title = chunkResult?.title {
                     recording.title = title
+                }
+                if let icon = chunkResult?.icon {
+                    recording.icon = icon
                 }
 
                 let summaryText = chunkResult?.summary ?? ""
@@ -1366,6 +1380,9 @@ class RecordingManager: NSObject, ObservableObject {
             if let title = finalizationResult?.title {
                 recording.title = title
             }
+            if let icon = finalizationResult?.icon {
+                recording.icon = icon
+            }
 
             let summaryText = finalizationResult?.summary ?? ""
             if !summaryText.isEmpty {
@@ -1608,6 +1625,9 @@ class RecordingManager: NSObject, ObservableObject {
                 if let title = result.title {
                     recording.title = title
                     print("[Backend] Title set to '\(title)'")
+                }
+                if let icon = result.icon {
+                    recording.icon = icon
                 }
                 if let summaryText = result.summary, !summaryText.isEmpty {
                     let summaryModel = Summary(date: recording.date, text: summaryText, recording: recording)
@@ -1858,6 +1878,7 @@ class RecordingManager: NSObject, ObservableObject {
 
             // Phase 2: Enrich
             if let title = finalizationResult?.title { recording.title = title }
+            if let icon = finalizationResult?.icon { recording.icon = icon }
             if let summaryText = finalizationResult?.summary, !summaryText.isEmpty {
                 recording.summary = Summary(date: session.recordingDate, text: summaryText, recording: recording)
             }
@@ -1978,6 +1999,7 @@ class RecordingManager: NSObject, ObservableObject {
         // Phase 2: Enrich
         if let context = session.modelContext, let recording = savedRecording {
             if let title = chunkResult?.title { recording.title = title }
+            if let icon = chunkResult?.icon { recording.icon = icon }
             if let summaryText = chunkResult?.summary, !summaryText.isEmpty {
                 recording.summary = Summary(date: session.recordingDate, text: summaryText, recording: recording)
             }

@@ -63,6 +63,35 @@ final class LocalSuggestion {
         self.urgency = urgency
     }
 
+    /// Relevance score combining urgency, confidence, and recency.
+    /// Higher = surfaces first in the actions list.
+    ///
+    /// Scoring:
+    /// - Urgency: high=300, normal=100, low=50 (or 100 if unset)
+    /// - Confidence: 0-100 (mapped from 0.0-1.0)
+    /// - Recency: <1d=200, <3d=120, <7d=60, older=20
+    var relevanceScore: Double {
+        let urgencyScore: Double
+        switch urgency.lowercased() {
+        case "high", "urgent", "immediate": urgencyScore = 300
+        case "low", "whenever": urgencyScore = 50
+        default: urgencyScore = 100
+        }
+
+        let confidenceScore = confidence * 100
+
+        let hoursSince = Date().timeIntervalSince(createdAt) / 3600
+        let recencyScore: Double
+        switch hoursSince {
+        case ..<24: recencyScore = 200
+        case ..<72: recencyScore = 120
+        case ..<168: recencyScore = 60
+        default: recencyScore = 20
+        }
+
+        return urgencyScore + confidenceScore + recencyScore
+    }
+
     /// Check if this suggestion has expired based on its TTL rule
     var isExpired: Bool {
         guard let rule = expiryRule else { return false }
@@ -86,20 +115,54 @@ final class LocalSuggestion {
         return Date() > expiryDate
     }
 
-    /// Clean expired suggestions from SwiftData
+    /// Clean expired suggestions from SwiftData.
+    ///
+    /// Deletes:
+    /// - Pending suggestions whose TTL rule has elapsed
+    /// - Any suggestion with status='expired' or 'dismissed' older than 7 days
+    /// - Any suggestion with status='accepted' older than 30 days (kept for history)
+    ///
+    /// This prevents SwiftData from accumulating thousands of stale rows
+    /// that bloat the local DB and slow down queries.
     static func cleanExpired(context: ModelContext) {
-        let pendingStatus = "pending"
-        let predicate = #Predicate<LocalSuggestion> { $0.status == pendingStatus }
-        let descriptor = FetchDescriptor(predicate: predicate)
+        // Fetch ALL suggestions — we evaluate by status + age
+        let descriptor = FetchDescriptor<LocalSuggestion>()
         guard let all = try? context.fetch(descriptor) else { return }
-        var cleaned = 0
-        for suggestion in all where suggestion.isExpired {
-            suggestion.status = "expired"
-            cleaned += 1
+
+        let now = Date()
+        let sevenDaysAgo = now.addingTimeInterval(-7 * 24 * 3600)
+        let thirtyDaysAgo = now.addingTimeInterval(-30 * 24 * 3600)
+
+        var deleted = 0
+        for suggestion in all {
+            let shouldDelete: Bool
+            switch suggestion.status {
+            case "pending":
+                // Two paths to deletion for pending suggestions:
+                // 1. Has expiryRule and TTL has elapsed
+                // 2. NO expiryRule (legacy/leaked) AND older than 7 days
+                //    — mirrors backend's stale-pending sweep
+                if suggestion.expiryRule != nil {
+                    shouldDelete = suggestion.isExpired
+                } else {
+                    shouldDelete = suggestion.createdAt < sevenDaysAgo
+                }
+            case "expired", "dismissed":
+                shouldDelete = suggestion.createdAt < sevenDaysAgo
+            case "accepted":
+                shouldDelete = suggestion.createdAt < thirtyDaysAgo
+            default:
+                shouldDelete = false
+            }
+            if shouldDelete {
+                context.delete(suggestion)
+                deleted += 1
+            }
         }
-        if cleaned > 0 {
+
+        if deleted > 0 {
             try? context.save()
-            print("[LocalSuggestion] Expired \(cleaned) suggestions")
+            print("[LocalSuggestion] Deleted \(deleted) stale suggestions")
         }
     }
 

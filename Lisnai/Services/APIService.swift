@@ -368,6 +368,24 @@ class APIService: ObservableObject {
         return try await execute(request)
     }
 
+    // MARK: - User / Survey
+
+    /// Submit onboarding survey responses.
+    /// Backend stores them in users.survey_responses (JSONB) for growth analytics.
+    func submitSurvey(_ payload: [String: Any]) async throws {
+        let bodyData = try JSONSerialization.data(withJSONObject: payload)
+        let request = try await createRequest(
+            endpoint: "/api/users/me/survey",
+            method: "POST",
+            body: bodyData
+        )
+        // Fire-and-forget — we don't need to decode the response
+        let (_, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode, "Survey submit failed")
+        }
+    }
+
     // MARK: - API Keys (Gateway)
 
     /// Generate a new API key for MCP gateway access
@@ -853,6 +871,7 @@ struct ChunkProcessResult: Codable {
     let sessionId: String?
     let title: String?
     let summary: String?
+    let icon: String?
     let rollingSummary: String?
     let status: String // "processed", "finalized", "single"
     let liveSuggestion: LiveSuggestion?
@@ -863,7 +882,7 @@ struct ChunkProcessResult: Codable {
 
     enum CodingKeys: String, CodingKey {
         case recordingSessionId, chunkIndex, memoryId, sessionId
-        case title, summary, rollingSummary, status, liveSuggestion, insight, embedding, chatResponse
+        case title, summary, icon, rollingSummary, status, liveSuggestion, insight, embedding, chatResponse
     }
 
     init(from decoder: Decoder) throws {
@@ -874,6 +893,7 @@ struct ChunkProcessResult: Codable {
         sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
         rollingSummary = try container.decodeIfPresent(String.self, forKey: .rollingSummary)
         status = try container.decode(String.self, forKey: .status)
         liveSuggestion = try container.decodeIfPresent(LiveSuggestion.self, forKey: .liveSuggestion)
@@ -1000,6 +1020,7 @@ struct ProcessResult: Codable {
     let sessionId: String
     let title: String?
     let summary: String?
+    let icon: String?
     let intent: IntentResult
     let actionResult: ActionResult?
     let chatResponse: String?

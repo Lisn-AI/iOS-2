@@ -108,16 +108,8 @@ struct RecordingRow: View {
 
     var body: some View {
         HStack(spacing: LisnSpacing.md) {
-            // Icon
-            ZStack {
-                Circle()
-                    .fill(LisnColors.bgSecondary)
-                    .frame(width: 44, height: 44)
-
-                Image(systemName: "waveform")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(LisnColors.accent)
-            }
+            // Animated icon based on recording category
+            RecordingIconView(recording: recording, size: 44)
 
             // Info
             VStack(alignment: .leading, spacing: 4) {
@@ -230,7 +222,7 @@ struct RecordingDetailView: View {
     @ViewBuilder
     private var summaryContent: some View {
         if let summary = recording.summary {
-            Markdown(summary.text)
+            Markdown(summary.text.lisnNormalizedMarkdown)
                 .markdownTheme(.lisnContent)
         } else {
             Text("No summary available")

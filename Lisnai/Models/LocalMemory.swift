@@ -7,6 +7,8 @@ import SwiftData
 final class LocalMemory {
     var id: UUID = UUID()
     var serverMemoryId: String?
+    /// UUID of the linked Recording in SwiftData — used for navigation from search/sources
+    var recordingId: UUID?
     var timestamp: Date
     var title: String?
     var rawTranscript: String

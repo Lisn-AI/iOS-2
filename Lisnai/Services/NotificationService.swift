@@ -497,7 +497,7 @@ class NotificationService: ObservableObject {
 
     /// Process payloads queued by the Notification Service Extension while the app was killed
     func processPendingExtensionPayloads() {
-        let sharedDefaults = UserDefaults(suiteName: "group.com.lisnai.shared")
+        let sharedDefaults = UserDefaults(suiteName: "group.com.lisnai.app")
         guard let pending = sharedDefaults?.array(forKey: "pendingSyncPayloads") as? [[String: String]],
               !pending.isEmpty else {
             return

@@ -9,7 +9,7 @@ options:
 
 settings:
   base:
-    DEVELOPMENT_TEAM: "JCG5A6HQ2P"
+    DEVELOPMENT_TEAM: "2G9UD36Z9T"
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: 1
     SWIFT_VERSION: "5.9"
@@ -49,6 +49,16 @@ packages:
   purchases-ios-spm:
     url: https://github.com/RevenueCat/purchases-ios-spm.git
     from: 5.0.0
+
+  # Lottie animations for recording icons
+  lottie-spm:
+    url: https://github.com/airbnb/lottie-spm.git
+    from: 4.5.0
+
+  # Mixpanel — product analytics (user behavior, funnels, retention)
+  mixpanel-swift:
+    url: https://github.com/mixpanel/mixpanel-swift.git
+    from: 6.0.0
 
 
 schemes:
@@ -109,12 +119,18 @@ targets:
       # RevenueCat subscriptions
       - package: purchases-ios-spm
         product: RevenueCat
+      # Lottie animated icons
+      - package: lottie-spm
+        product: Lottie
+      # Mixpanel analytics
+      - package: mixpanel-swift
+        product: Mixpanel
       # EventKit (system framework for Reminders/Calendar)
       - sdk: EventKit.framework
 
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.lisnai.Lisnai
+        PRODUCT_BUNDLE_IDENTIFIER: com.lisnai.app
         INFOPLIST_FILE: Lisnai/Info.plist
         CODE_SIGN_STYLE: Automatic
         ENABLE_PREVIEWS: YES
@@ -129,7 +145,7 @@ targets:
       path: Lisnai/Lisnai.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.lisnai.shared
+          - group.com.lisnai.app
 
     # Info.plist settings
     info:
@@ -168,10 +184,13 @@ targets:
         # Minimum iOS version
         LSMinimumSystemVersion: "17.0"
 
+        # Mixpanel project token (public client token, safe to embed)
+        MixpanelToken: "1d2ce818788cab22eae0273d26b83d49"
+
         # URL Schemes for Google Sign In and deep links
         CFBundleURLTypes:
           - CFBundleURLSchemes:
-              - "com.googleusercontent.apps.303903781890-0rfihh50t3a80kf9vemig983pife9trh"
+              - "com.googleusercontent.apps.303903781890-eced8pa2atn11obulio8l812qv8bcgfi"
           - CFBundleURLSchemes:
               - "lisnai"
 
@@ -209,7 +228,7 @@ targets:
 
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.lisnai.Lisnai.RecordingActivity
+        PRODUCT_BUNDLE_IDENTIFIER: com.lisnai.app.RecordingActivity
         CODE_SIGN_STYLE: Automatic
         SWIFT_STRICT_CONCURRENCY: complete
         SKIP_INSTALL: YES
@@ -234,7 +253,7 @@ targets:
 
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.lisnai.Lisnai.NotificationService
+        PRODUCT_BUNDLE_IDENTIFIER: com.lisnai.app.NotificationService
         CODE_SIGN_STYLE: Automatic
         SWIFT_STRICT_CONCURRENCY: complete
         SKIP_INSTALL: YES
@@ -244,7 +263,7 @@ targets:
       path: NotificationServiceExtension/NotificationServiceExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.lisnai.shared
+          - group.com.lisnai.app
 
     info:
       path: NotificationServiceExtension/Info.plist

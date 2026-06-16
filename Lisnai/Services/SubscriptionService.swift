@@ -136,6 +136,8 @@ class SubscriptionService: NSObject, ObservableObject {
 
     /// Sync subscription status and usage from backend
     func syncUsageFromBackend() async {
+        let previousStatus = status
+        let previousTier = tier
         do {
             let response = try await APIService.shared.getSubscriptionStatus()
             tier = response.tier
@@ -149,6 +151,18 @@ class SubscriptionService: NSObject, ObservableObject {
             if let trialEndStr = response.trialEndsAt {
                 trialEndsAt = ISO8601DateFormatter().date(from: trialEndStr)
             }
+
+            // Fire Mixpanel state events on transitions
+            if previousStatus != .trial && response.status == .trial {
+                AnalyticsService.shared.track(.trialStarted, properties: [
+                    "tier": tier.rawValue
+                ])
+            }
+            if previousTier != response.tier {
+                AnalyticsService.shared.setUserProperty("current_tier", value: tier.rawValue)
+                AnalyticsService.shared.setSuperProperty("current_tier", value: tier.rawValue)
+            }
+            AnalyticsService.shared.setUserProperty("subscription_status", value: status.rawValue)
         } catch {
             print("[SubscriptionService] Backend sync error: \(error)")
         }
@@ -180,39 +194,51 @@ class SubscriptionService: NSObject, ObservableObject {
     func canTranscribe() -> LimitCheckResult {
         checkLimit(
             used: Int(usage?.transcriptionMinutes ?? 0),
-            limit: Int(limits?.transcriptionMinutes ?? 30)
+            limit: Int(limits?.transcriptionMinutes ?? 30),
+            resource: "transcription"
         )
     }
 
     func canChat() -> LimitCheckResult {
         checkLimit(
             used: usage?.chatMessages ?? 0,
-            limit: limits?.chatMessages ?? 20
+            limit: limits?.chatMessages ?? 20,
+            resource: "chat"
         )
     }
 
     func canSearch() -> LimitCheckResult {
         checkLimit(
             used: usage?.memorySearches ?? 0,
-            limit: limits?.memorySearches ?? 5
+            limit: limits?.memorySearches ?? 5,
+            resource: "search"
         )
     }
 
     func canUseAction() -> LimitCheckResult {
         checkLimit(
             used: usage?.actionsUsed ?? 0,
-            limit: limits?.actionsUsed ?? 3
+            limit: limits?.actionsUsed ?? 3,
+            resource: "action"
         )
     }
 
     // MARK: - Helpers
 
-    private func checkLimit(used: Int, limit: Int) -> LimitCheckResult {
+    private func checkLimit(used: Int, limit: Int, resource: String = "unknown") -> LimitCheckResult {
         // -1 means unlimited
         if limit == -1 {
             return .allowed(used: used, limit: -1, remaining: -1)
         }
         let remaining = max(0, limit - used)
+        if remaining == 0 {
+            AnalyticsService.shared.track(.limitHit, properties: [
+                "resource": resource,
+                "used": used,
+                "limit": limit,
+                "current_tier": tier.rawValue
+            ])
+        }
         if used < limit {
             return .allowed(used: used, limit: limit, remaining: remaining)
         }

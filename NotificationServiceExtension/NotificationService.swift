@@ -4,7 +4,7 @@ class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var bestAttemptContent: UNMutableNotificationContent?
 
-    private let sharedDefaults = UserDefaults(suiteName: "group.com.lisnai.shared")
+    private let sharedDefaults = UserDefaults(suiteName: "group.com.lisnai.app")
 
     override func didReceive(
         _ request: UNNotificationRequest,

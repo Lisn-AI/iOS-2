@@ -6,12 +6,12 @@ struct SourcesListSheet: View {
     let sourceIds: [String]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @State private var memories: [LocalMemory] = []
+    @State private var items: [(memory: LocalMemory, recording: Recording?)] = []
 
     var body: some View {
         NavigationStack {
             Group {
-                if memories.isEmpty {
+                if items.isEmpty {
                     VStack(spacing: LisnSpacing.md) {
                         Image(systemName: "doc.text.magnifyingglass")
                             .font(.system(size: 40))
@@ -27,9 +27,16 @@ struct SourcesListSheet: View {
                     }
                     .frame(maxHeight: .infinity)
                 } else {
-                    List(memories, id: \.id) { memory in
-                        SourceRow(memory: memory)
+                    List(items, id: \.memory.id) { item in
+                        if let recording = item.recording {
+                            NavigationLink(destination: RecordingDetailView(recording: recording)) {
+                                SourceRow(memory: item.memory, recordingTitle: recording.title)
+                            }
                             .listRowBackground(LisnColors.bgPrimary)
+                        } else {
+                            SourceRow(memory: item.memory)
+                                .listRowBackground(LisnColors.bgPrimary)
+                        }
                     }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
@@ -52,11 +59,42 @@ struct SourcesListSheet: View {
         let descriptor = FetchDescriptor<LocalMemory>()
         guard let allMemories = try? modelContext.fetch(descriptor) else { return }
 
-        memories = allMemories.filter { memory in
+        let matched = allMemories.filter { memory in
             let serverId = memory.serverMemoryId ?? ""
             let localId = memory.id.uuidString
             return sourceIds.contains(serverId) || sourceIds.contains(localId)
         }
+
+        items = matched.map { memory in
+            let recording = linkedRecording(for: memory)
+            return (memory: memory, recording: recording)
+        }
+    }
+
+    private func linkedRecording(for memory: LocalMemory) -> Recording? {
+        // Direct link via recordingId (set for memories created after this fix)
+        if let recordingId = memory.recordingId {
+            let descriptor = FetchDescriptor<Recording>(
+                predicate: #Predicate { $0.id == recordingId }
+            )
+            if let recording = try? modelContext.fetch(descriptor).first {
+                return recording
+            }
+        }
+
+        // Fallback: match by timestamp proximity (for legacy memories)
+        let ts = memory.timestamp
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: ts)
+        guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return nil }
+        let descriptor = FetchDescriptor<Recording>(
+            predicate: #Predicate { $0.date >= dayStart && $0.date < dayEnd },
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        guard let recordings = try? modelContext.fetch(descriptor) else { return nil }
+        return recordings.min(by: {
+            abs($0.date.timeIntervalSince(ts)) < abs($1.date.timeIntervalSince(ts))
+        })
     }
 }
 
@@ -64,6 +102,11 @@ struct SourcesListSheet: View {
 
 private struct SourceRow: View {
     let memory: LocalMemory
+    var recordingTitle: String? = nil
+
+    private var displayTitle: String {
+        recordingTitle ?? memory.title ?? "Recording"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: LisnSpacing.xs) {
@@ -72,7 +115,7 @@ private struct SourceRow: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(LisnColors.accent)
 
-                Text(memory.title ?? "Recording")
+                Text(displayTitle)
                     .font(LisnFont.bodyMedium())
                     .fontWeight(.semibold)
                     .foregroundColor(LisnColors.textPrimary)

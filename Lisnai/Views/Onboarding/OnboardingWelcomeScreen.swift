@@ -1,7 +1,7 @@
 import SwiftUI
-import Vortex
 
-/// Screen 1: Cinematic welcome with gradient text and ambient glow
+/// Screen 1: Cinematic welcome with gradient text on a single ambient bloom.
+/// Per DESIGN.md Part 5: pure typography moment, no Vortex, no mascot.
 struct OnboardingWelcomeScreen: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var showLine1 = false
@@ -9,36 +9,11 @@ struct OnboardingWelcomeScreen: View {
     @State private var showSubtitle = false
     @State private var showHint = false
     @State private var hintBounce = false
-    @State private var glowPulse = false
-    @State private var particlesActive = false
 
     var body: some View {
         ZStack {
-            // Central ambient glow orb
-            RadialGradient(
-                colors: [
-                    LisnColors.accent.opacity(glowPulse ? 0.15 : 0.08),
-                    LisnColors.accent.opacity(0.03),
-                    Color.clear
-                ],
-                center: .center,
-                startRadius: 40,
-                endRadius: 350
-            )
-            .ignoresSafeArea()
-            .animation(.easeInOut(duration: 4.0).repeatForever(autoreverses: true), value: glowPulse)
-
-            // Ambient particles
-            VortexView(createAmbientSystem()) {
-                Circle()
-                    .fill(LisnColors.accent.opacity(colorScheme == .dark ? 0.5 : 0.3))
-                    .frame(width: 4)
-                    .blur(radius: 1)
-                    .tag("dot")
-            }
-            .opacity(particlesActive ? (colorScheme == .dark ? 0.5 : 0.35) : 0)
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
+            // Single ambient bloom — no competing animations
+            LisnAmbientBackground()
 
             VStack(spacing: 0) {
                 Spacer()
@@ -108,11 +83,6 @@ struct OnboardingWelcomeScreen: View {
     }
 
     private func startAnimation() {
-        glowPulse = true
-
-        withAnimation(.easeIn(duration: 1.0)) {
-            particlesActive = true
-        }
         withAnimation(.spring(response: 0.8, dampingFraction: 0.72).delay(0.4)) {
             showLine1 = true
         }
@@ -129,24 +99,6 @@ struct OnboardingWelcomeScreen: View {
             }
         }
     }
-}
-
-// MARK: - Ambient Particle System
-
-func createAmbientSystem() -> VortexSystem {
-    var system = VortexSystem(tags: ["dot"])
-    system.position = [0.5, 0.5]
-    system.speed = 0.10
-    system.speedVariation = 0.06
-    system.angle = .degrees(0)
-    system.angleRange = .degrees(360)
-    system.birthRate = 5
-    system.lifespan = 6.0
-    system.lifespanVariation = 2.0
-    system.size = 0.2
-    system.sizeVariation = 0.1
-    system.sizeMultiplierAtDeath = 0
-    return system
 }
 
 #Preview {
