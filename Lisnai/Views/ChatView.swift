@@ -411,7 +411,7 @@ struct ChatView: View {
         guard let err = chatService.error else { return }
         // We don't have a typed error reference here, so match on the
         // localized description as a safe heuristic.
-        if err.localizedDescription.contains("10-day free window") {
+        if err.contains("free_window") || err.contains("10-day free window") {
             await subscriptionService.syncUsageFromBackend()
             freeWindowDaysRemaining = subscriptionService.freeWindow?.daysRemaining ?? -1
             AnalyticsService.shared.track(.paywallShown, properties: [

@@ -172,15 +172,15 @@ final class PurchaseService: ObservableObject {
 
             // Tell backend to upgrade the tier immediately — don't wait for the
             // server-to-server notification, that's just for renewals/cancels.
+            // The JWS lives on VerificationResult, not Transaction.
             do {
-                let txJWS = await transactionJWS(for: transaction)
+                let txJWS = transactionResult.jwsRepresentation
                 try await APIService.shared.verifyAppStoreTransaction(jws: txJWS)
             } catch {
                 print("[PurchaseService] Backend verify failed: \(error.localizedDescription) — will retry on next foreground sync")
             }
 
             await refreshEntitlements()
-            // Pull fresh tier + limits from backend
             await SubscriptionService.shared.syncUsageFromBackend()
 
             AnalyticsService.shared.track(.subscriptionPurchased, properties: [
@@ -189,7 +189,6 @@ final class PurchaseService: ObservableObject {
             ])
             NotificationCenter.default.post(name: .subscriptionPurchased, object: nil)
 
-            // Finish the transaction so Apple stops re-delivering it
             await transaction.finish()
 
         case .unverified(_, let error):
@@ -199,12 +198,6 @@ final class PurchaseService: ObservableObject {
                 "source": source
             ])
         }
-    }
-
-    /// Pull the JWS string from a Transaction. StoreKit 2 stores it in
-    /// `jwsRepresentation` on iOS 15+.
-    private func transactionJWS(for transaction: Transaction) async -> String {
-        transaction.jwsRepresentation
     }
 
     // MARK: - App Account Token (Firebase UID → deterministic UUID)
