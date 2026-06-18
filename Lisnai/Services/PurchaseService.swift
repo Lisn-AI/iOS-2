@@ -235,9 +235,23 @@ final class PurchaseService: ObservableObject {
     /// Called when the app comes to foreground. Re-checks StoreKit entitlements
     /// (catches cancellations, expirations, family sharing changes) and syncs
     /// the backend so the UI always reflects reality.
+    ///
+    /// If the backend tier is lower than local StoreKit tier, we re-verify
+    /// the latest transaction (handles the case where the initial verify call
+    /// failed due to network timeout / Render cold-start).
     func syncOnForeground() async {
         await refreshEntitlements()
         await SubscriptionService.shared.syncUsageFromBackend()
+
+        // If local says we're subscribed but backend disagrees, re-verify
+        let backendTier = SubscriptionService.shared.tier
+        let localTier = self.localTier
+        let tierRank: [String: Int] = ["free": 0, "pro": 1, "max": 2]
+        if (tierRank[localTier] ?? 0) > (tierRank[backendTier.rawValue] ?? 0) {
+            print("[PurchaseService] Backend stale (\(backendTier.rawValue)) vs local (\(localTier)) — re-verifying")
+            await reverifyLatestTransaction()
+            await SubscriptionService.shared.syncUsageFromBackend()
+        }
     }
 
     // MARK: - Transaction Handling
@@ -269,17 +283,29 @@ final class PurchaseService: ObservableObject {
             // Step 3: Finish the transaction so Apple stops re-delivering it
             await transaction.finish()
 
-            // Step 4: Tell backend (background, non-blocking, retry-safe).
-            // If this fails, syncOnForeground() retries next time.
+            // Step 4: Tell backend with retry (background, non-blocking).
+            // Render cold-starts can cause the first request to timeout.
+            // Retry up to 3 times with 2s delay — covers cold-start + QUIC stale connection.
+            let jws = transactionResult.jwsRepresentation
+            let pid = transaction.productID
             Task.detached { @MainActor in
-                do {
-                    let txJWS = transactionResult.jwsRepresentation
-                    try await APIService.shared.verifyAppStoreTransaction(jws: txJWS)
-                    print("[PurchaseService] Backend verify succeeded for \(transaction.productID)")
-                } catch {
-                    print("[PurchaseService] Backend verify failed: \(error.localizedDescription) — will retry on foreground")
+                var backendSynced = false
+                for attempt in 1...3 {
+                    do {
+                        try await APIService.shared.verifyAppStoreTransaction(jws: jws)
+                        print("[PurchaseService] Backend verify succeeded for \(pid) (attempt \(attempt))")
+                        backendSynced = true
+                        break
+                    } catch {
+                        print("[PurchaseService] Backend verify attempt \(attempt) failed: \(error.localizedDescription)")
+                        if attempt < 3 {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        }
+                    }
                 }
-                // Sync usage/limits from backend regardless
+                if !backendSynced {
+                    print("[PurchaseService] Backend verify exhausted retries — will sync on next foreground")
+                }
                 await SubscriptionService.shared.syncUsageFromBackend()
             }
 
