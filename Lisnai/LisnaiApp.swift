@@ -319,8 +319,10 @@ struct LisnaiApp: App {
                 // Process any NSE-queued payloads that arrived while backgrounded
                 NotificationService.shared.processPendingExtensionPayloads()
 
+                // Re-check StoreKit entitlements (catches cancels, expirations,
+                // upgrades, downgrades, family sharing changes) then sync backend
                 Task {
-                    await subscriptionService.syncUsageFromBackend()
+                    await PurchaseService.shared.syncOnForeground()
                 }
             }
         }

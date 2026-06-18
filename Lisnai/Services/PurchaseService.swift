@@ -137,27 +137,71 @@ final class PurchaseService: ObservableObject {
         AnalyticsService.shared.track(.subscriptionRestored)
     }
 
+    // MARK: - Product → Tier mapping
+
+    static let productTierMap: [String: String] = [
+        "com.lisnai.app.pro.monthly": "pro",
+        "com.lisnai.app.pro.annual": "pro",
+        "com.lisnai.app.max.monthly": "max",
+        "com.lisnai.app.max.yearly": "max",
+    ]
+
+    /// Derived tier from local StoreKit entitlements — NOT from backend.
+    /// "free" if no active entitlement.
+    var localTier: String {
+        guard let id = activeProductId else { return "free" }
+        return Self.productTierMap[id] ?? "free"
+    }
+
     // MARK: - Entitlements
 
     /// Re-scan `Transaction.currentEntitlements` and update local state.
-    /// Used at app launch and after restores.
+    /// Picks the HIGHEST active entitlement (max > pro).
     func refreshEntitlements() async {
-        var foundActive = false
-        var activeId: String?
+        var bestProduct: String?
+        var bestTierRank = 0
+
+        let tierRank: [String: Int] = ["pro": 1, "max": 2]
 
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
-            // Skip if expired
             if let exp = transaction.expirationDate, exp < Date() { continue }
-            // Match one of our products
             guard Self.productIds.contains(transaction.productID) else { continue }
 
-            foundActive = true
-            activeId = transaction.productID
+            let tier = Self.productTierMap[transaction.productID] ?? "free"
+            let rank = tierRank[tier] ?? 0
+            if rank > bestTierRank {
+                bestTierRank = rank
+                bestProduct = transaction.productID
+            }
         }
 
-        hasActiveEntitlement = foundActive
-        activeProductId = activeId
+        let wasActive = hasActiveEntitlement
+        let previousProduct = activeProductId
+
+        hasActiveEntitlement = bestProduct != nil
+        activeProductId = bestProduct
+
+        // Detect state changes and sync backend
+        if previousProduct != bestProduct {
+            let newTier = bestProduct.flatMap { Self.productTierMap[$0] } ?? "free"
+            print("[PurchaseService] Entitlement changed: \(previousProduct ?? "none") → \(bestProduct ?? "none") (tier: \(newTier))")
+
+            // If user lost entitlement (cancel/expire), tell backend
+            if wasActive && !hasActiveEntitlement {
+                print("[PurchaseService] Entitlement lost — syncing backend to free tier")
+            }
+
+            await SubscriptionService.shared.syncUsageFromBackend()
+        }
+    }
+
+    /// Called when the app comes to foreground. Re-checks StoreKit entitlements
+    /// (catches cancellations, expirations, family sharing changes) and syncs
+    /// the backend so the UI always reflects reality.
+    func syncOnForeground() async {
+        await refreshEntitlements()
+        await SubscriptionService.shared.syncUsageFromBackend()
     }
 
     // MARK: - Transaction Handling
