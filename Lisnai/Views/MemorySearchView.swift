@@ -13,6 +13,9 @@ struct MemorySearchView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var showPaywall = false
     @State private var showLimitCard = false
+    @State private var limitCardUsed: Int = 0
+    @State private var limitCardLimit: Int = 0
+    @State private var freeWindowDaysRemaining: Int = -1
     @FocusState private var isSearchFieldFocused: Bool
 
     var body: some View {
@@ -20,6 +23,21 @@ struct MemorySearchView: View {
             VStack(spacing: 0) {
                 // Search bar
                 searchBar
+
+                // Inline upgrade card when the daily/monthly search cap is hit.
+                if showLimitCard {
+                    UpgradePromptCard(
+                        resourceName: "searches",
+                        used: limitCardUsed,
+                        limit: limitCardLimit
+                    ) {
+                        showLimitCard = false
+                        showPaywall = true
+                    }
+                    .padding(.horizontal, LisnSpacing.md)
+                    .padding(.bottom, LisnSpacing.sm)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
 
                 // Content
                 if viewModel.isLoading {
@@ -36,6 +54,10 @@ struct MemorySearchView: View {
             .navigationTitle("Search Memories")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
+                    .environmentObject(subscriptionService)
+            }
             .navigationDestination(item: $selectedRecording) { recording in
                 RecordingDetailView(recording: recording)
             }
@@ -271,16 +293,47 @@ struct MemorySearchView: View {
     private func performSearchAsync() async {
         guard !searchText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
 
-        // Paywall disabled — will enforce via Apple IAP later
-        // let limitCheck = subscriptionService.canSearch()
-        // if !limitCheck.isAllowed {
-        //     showLimitCard = true
-        //     return
-        // }
+        // Client-side gating: don't even round-trip if the user is blocked.
+        switch subscriptionService.canSearch() {
+        case .allowed:
+            break
+        case .denied(let used, let limit):
+            limitCardUsed = used
+            limitCardLimit = limit
+            AnalyticsService.shared.track(.paywallShown, properties: [
+                "trigger_source": "search_limit"
+            ])
+            withAnimation(.easeOut(duration: 0.2)) {
+                showLimitCard = true
+            }
+            return
+        case .freeWindowExpired(let days):
+            freeWindowDaysRemaining = days
+            AnalyticsService.shared.track(.paywallShown, properties: [
+                "trigger_source": "search_free_window_expired",
+                "days_remaining": days
+            ])
+            showPaywall = true
+            return
+        }
 
         isSearching = true
         await viewModel.search(query: searchText, modelContext: modelContext)
         isSearching = false
+
+        // If the backend rejected with a free-window error, react. The
+        // view model surfaces this via `errorMessage` since it doesn't
+        // re-throw the typed APIError.
+        if viewModel.errorMessage.contains("10-day free window") {
+            await subscriptionService.syncUsageFromBackend()
+            freeWindowDaysRemaining = subscriptionService.freeWindow?.daysRemaining ?? -1
+            AnalyticsService.shared.track(.paywallShown, properties: [
+                "trigger_source": "search_free_window_expired",
+                "days_remaining": freeWindowDaysRemaining
+            ])
+            showPaywall = true
+            viewModel.showError = false
+        }
 
         // Sync usage counters after consuming search quota
         await subscriptionService.syncUsageFromBackend()

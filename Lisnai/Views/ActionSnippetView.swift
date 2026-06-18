@@ -5,10 +5,15 @@ import SwiftUI
 struct ActionSnippetView: View {
     let toolCall: InlineToolCall
     var onStatusChange: ((String, ToolCallStatus) -> Void)?  // (toolCallId, newStatus)
+    @EnvironmentObject var subscriptionService: SubscriptionService
     @State private var showEditSheet = false
     @State private var localCompleted = false
     @State private var localFailed = false
     @State private var localResultMessage: String?
+    // Paywall + action-quota gating
+    @State private var showPaywall = false
+    @State private var showActionLimitAlert = false
+    @State private var actionLimitMessage = ""
 
     private var pendingAction: PendingAction {
         toolCall.toPendingAction()
@@ -73,12 +78,31 @@ struct ActionSnippetView: View {
                 action: pendingAction,
                 onConfirm: { editedAction in
                     showEditSheet = false
-                    executeAction(editedAction)
+                    // Gate on action quota / free-window before executing.
+                    switch subscriptionService.gateAction(triggerPrefix: "action") {
+                    case .allowed:
+                        executeAction(editedAction)
+                    case .denied(let used, let limit):
+                        actionLimitMessage = "You've used \(used)/\(limit) actions today. Upgrade to keep creating actions."
+                        showActionLimitAlert = true
+                    case .freeWindowExpired:
+                        showPaywall = true
+                    }
                 },
                 onCancel: {
                     showEditSheet = false
                 }
             )
+        }
+        .alert("Action limit reached", isPresented: $showActionLimitAlert) {
+            Button("Upgrade") { showPaywall = true }
+            Button("Not now", role: .cancel) { }
+        } message: {
+            Text(actionLimitMessage)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+                .environmentObject(subscriptionService)
         }
     }
 

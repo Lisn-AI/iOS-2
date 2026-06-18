@@ -2,7 +2,7 @@ import Foundation
 // RevenueCat is imported but all calls are guarded behind isRevenueCatConfigured
 import RevenueCat
 
-/// Manages subscriptions via Razorpay backend sync (primary) and RevenueCat SDK (when configured)
+/// Manages subscriptions via backend sync. StoreKit 2 will become primary once IAP wires up.
 @MainActor
 class SubscriptionService: NSObject, ObservableObject {
     static let shared = SubscriptionService()
@@ -17,6 +17,10 @@ class SubscriptionService: NSObject, ObservableObject {
     @Published var trialEndsAt: Date?
     @Published var offerings: Offerings?
     @Published var isPurchasing = false
+    /// Latest free-window descriptor synced from the backend. When the user
+    /// is on the free tier and `isWithinWindow == false`, all gated features
+    /// (chat, search, action creation) should be paywalled.
+    @Published var freeWindow: FreeWindowStatus?
 
     // MARK: - RevenueCat Configuration Guard
 
@@ -60,7 +64,7 @@ class SubscriptionService: NSObject, ObservableObject {
     /// Call from AppDelegate.didFinishLaunching
     func configure() {
         guard isRevenueCatConfigured else {
-            print("[SubscriptionService] RevenueCat disabled — using Razorpay backend sync")
+            print("[SubscriptionService] RevenueCat disabled — using backend sync until StoreKit 2 wires up")
             return
         }
         Purchases.logLevel = .warn
@@ -144,6 +148,7 @@ class SubscriptionService: NSObject, ObservableObject {
             status = response.status
             limits = response.limits
             usage = response.usage
+            freeWindow = response.freeWindow
 
             if let periodEndStr = response.periodEnd {
                 periodEnd = ISO8601DateFormatter().date(from: periodEndStr)
@@ -168,34 +173,17 @@ class SubscriptionService: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Post-Payment Polling
-
-    /// Poll backend until subscription tier upgrades (or timeout).
-    /// Used after Razorpay checkout dismisses to wait for webhook processing.
-    /// - Parameters:
-    ///   - maxAttempts: Number of poll attempts (default 10 = ~20 seconds)
-    /// - Returns: `true` if tier upgraded to pro/max within the timeout
-    func pollForSubscriptionUpdate(maxAttempts: Int = 10) async -> Bool {
-        let previousTier = tier
-        for attempt in 1...maxAttempts {
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-            await syncUsageFromBackend()
-            if tier == .pro || tier == .max, tier != previousTier {
-                print("[SubscriptionService] Subscription activated after \(attempt) poll(s)")
-                return true
-            }
-        }
-        print("[SubscriptionService] Polling timed out after \(maxAttempts) attempts")
-        return false
-    }
-
     // MARK: - Local Limit Checks
 
     func canTranscribe() -> LimitCheckResult {
+        // Transcription gating is owned by RecordingManager — do not enforce
+        // the free-window paywall here so the recording flow continues to work
+        // as it did before. RecordingManager has its own end-of-session policy.
         checkLimit(
             used: Int(usage?.transcriptionMinutes ?? 0),
             limit: Int(limits?.transcriptionMinutes ?? 30),
-            resource: "transcription"
+            resource: "transcription",
+            enforceFreeWindow: false
         )
     }
 
@@ -223,9 +211,74 @@ class SubscriptionService: NSObject, ObservableObject {
         )
     }
 
+    // MARK: - Paywall gating helpers
+
+    /// Outcome bucket for view-layer paywall decisions.
+    enum PaywallGate: Equatable {
+        case allowed
+        case denied(used: Int, limit: Int)
+        case freeWindowExpired(daysRemaining: Int)
+    }
+
+    /// Check whether the user can create/confirm an action right now and
+    /// emit the `paywall_shown` Mixpanel event with the correct trigger
+    /// source if they can't. Returns the gate result so the view can react.
+    ///
+    /// Pass `triggerPrefix` like `"action"`, `"chat"`, `"search"` — the
+    /// Mixpanel `trigger_source` becomes `<prefix>_limit` or
+    /// `<prefix>_free_window_expired`.
+    func gateAction(triggerPrefix: String = "action") -> PaywallGate {
+        switch canUseAction() {
+        case .allowed:
+            return .allowed
+        case .denied(let used, let limit):
+            AnalyticsService.shared.track(.paywallShown, properties: [
+                "trigger_source": "\(triggerPrefix)_limit"
+            ])
+            return .denied(used: used, limit: limit)
+        case .freeWindowExpired(let days):
+            AnalyticsService.shared.track(.paywallShown, properties: [
+                "trigger_source": "\(triggerPrefix)_free_window_expired",
+                "days_remaining": days
+            ])
+            return .freeWindowExpired(daysRemaining: days)
+        }
+    }
+
     // MARK: - Helpers
 
-    private func checkLimit(used: Int, limit: Int, resource: String = "unknown") -> LimitCheckResult {
+    /// True when the user is on the free tier and the 10-day free window
+    /// has lapsed. Paid tiers always pass this check.
+    private var isFreeWindowExpired: Bool {
+        guard tier == .free else { return false }
+        if let window = freeWindow {
+            return !window.isWithinWindow
+        }
+        // No freeWindow payload from backend — fall back to the legacy
+        // `status == .expired` signal which the backend used to surface
+        // the same condition.
+        return status == .expired
+    }
+
+    private func checkLimit(
+        used: Int,
+        limit: Int,
+        resource: String = "unknown",
+        enforceFreeWindow: Bool = true
+    ) -> LimitCheckResult {
+        // Free-window hard block takes priority over per-resource caps —
+        // the user can't unlock more by waiting for the daily reset, only
+        // by subscribing.
+        if enforceFreeWindow && isFreeWindowExpired {
+            let days = freeWindow?.daysRemaining ?? -1
+            AnalyticsService.shared.track(.limitHit, properties: [
+                "resource": resource,
+                "reason": "free_window_expired",
+                "days_remaining": days,
+                "current_tier": tier.rawValue
+            ])
+            return .freeWindowExpired(daysRemaining: days)
+        }
         // -1 means unlimited
         if limit == -1 {
             return .allowed(used: used, limit: -1, remaining: -1)

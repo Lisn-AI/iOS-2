@@ -24,6 +24,10 @@ struct MainTabView: View {
     // Recording action edit state
     @State private var recordingActionToEdit: PendingAction?
 
+    // Action-creation paywall state — shown when canUseAction() denies.
+    @State private var showActionLimitAlert = false
+    @State private var actionLimitMessage = ""
+
     enum Tab: String, CaseIterable {
         case home = "Home"
         case history = "History"
@@ -198,12 +202,21 @@ struct MainTabView: View {
                 action: action,
                 onConfirm: { editedAction in
                     liveSuggestionAction = nil
-                    Task {
-                        let result = await ActionExecutor.shared.executeAction(editedAction)
-                        if result.success && result.requiresUserInput == .none {
-                            suggestionSuccessMessage = result.message
-                            showSuggestionSuccess = true
+                    // Gate on action quota / free-window before executing.
+                    switch subscriptionService.gateAction(triggerPrefix: "action") {
+                    case .allowed:
+                        Task {
+                            let result = await ActionExecutor.shared.executeAction(editedAction)
+                            if result.success && result.requiresUserInput == .none {
+                                suggestionSuccessMessage = result.message
+                                showSuggestionSuccess = true
+                            }
                         }
+                    case .denied(let used, let limit):
+                        actionLimitMessage = "You've used \(used)/\(limit) actions today. Upgrade to keep creating actions."
+                        showActionLimitAlert = true
+                    case .freeWindowExpired:
+                        showPaywall = true
                     }
                 },
                 onCancel: {
@@ -221,18 +234,32 @@ struct MainTabView: View {
                 action: action,
                 onConfirm: { editedAction in
                     recordingActionToEdit = nil
-                    Task {
-                        let result = await ActionExecutor.shared.executeAction(editedAction)
-                        if result.success && result.requiresUserInput == .none {
-                            suggestionSuccessMessage = result.message
-                            showSuggestionSuccess = true
+                    switch subscriptionService.gateAction(triggerPrefix: "action") {
+                    case .allowed:
+                        Task {
+                            let result = await ActionExecutor.shared.executeAction(editedAction)
+                            if result.success && result.requiresUserInput == .none {
+                                suggestionSuccessMessage = result.message
+                                showSuggestionSuccess = true
+                            }
                         }
+                    case .denied(let used, let limit):
+                        actionLimitMessage = "You've used \(used)/\(limit) actions today. Upgrade to keep creating actions."
+                        showActionLimitAlert = true
+                    case .freeWindowExpired:
+                        showPaywall = true
                     }
                 },
                 onCancel: {
                     recordingActionToEdit = nil
                 }
             )
+        }
+        .alert("Action limit reached", isPresented: $showActionLimitAlert) {
+            Button("Upgrade") { showPaywall = true }
+            Button("Not now", role: .cancel) { }
+        } message: {
+            Text(actionLimitMessage)
         }
         .alert("Success", isPresented: $showSuggestionSuccess) {
             Button("OK") { }

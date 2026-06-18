@@ -99,14 +99,28 @@ class APIService: ObservableObject {
             case 401:
                 print("[APIService] 401 - Auth rejected by backend")
                 throw APIError.notAuthenticated
+            case 402:
+                // Free window expired — user is past the 10-day free trial
+                // and must subscribe to continue. Backend body looks like
+                // `{ error: "free_window_expired", freeWindowDaysRemaining: -1 }`.
+                if let limitResponse = try? decoder.decode(LimitExceededResponse.self, from: data) {
+                    let days = limitResponse.freeWindowDaysRemaining ?? -1
+                    throw APIError.freeWindowExpired(daysRemaining: days)
+                }
+                throw APIError.freeWindowExpired(daysRemaining: -1)
             case 403:
                 throw APIError.forbidden
             case 404:
                 throw APIError.notFound
             case 429:
-                // Usage limit exceeded
+                // Usage limit exceeded — daily/monthly cap reached.
                 if let limitResponse = try? decoder.decode(LimitExceededResponse.self, from: data) {
-                    throw APIError.limitExceeded(resource: limitResponse.resource, used: limitResponse.used, limit: limitResponse.limit)
+                    throw APIError.limitExceeded(
+                        resource: limitResponse.resource,
+                        used: limitResponse.used,
+                        limit: limitResponse.limit,
+                        freeWindowDaysRemaining: limitResponse.freeWindowDaysRemaining ?? -1
+                    )
                 }
                 throw APIError.httpError(429, "Rate limit exceeded")
             case 500...599:
@@ -644,13 +658,25 @@ class APIService: ObservableObject {
         return try await execute(request)
     }
 
-    /// Create a Razorpay subscription and get the hosted checkout URL
-    func createSubscription(planId: String) async throws -> CreateSubscriptionResponse {
-        let body = CreateSubscriptionRequest(planId: planId)
+    /// Check rich recording permission state before the user taps record.
+    /// Returns whether recording is allowed, daily budget, overage availability,
+    /// and the hard-stop minute mark.
+    func getRecordingPermission() async throws -> RecordingPermissionResponse {
+        let request = try await createRequest(endpoint: "/api/recording/permission")
+        return try await execute(request)
+    }
+
+    /// Send an App Store transaction JWS to the backend for verification and
+    /// immediate tier upgrade. Backend validates the signature, decodes the
+    /// product ID, and upserts the subscription.
+    @discardableResult
+    func verifyAppStoreTransaction(jws: String) async throws -> AppStoreVerifyResponse {
+        struct Body: Encodable { let signedTransactionJWS: String }
+        let body = try encoder.encode(Body(signedTransactionJWS: jws))
         let request = try await createRequest(
-            endpoint: "/payments/create-subscription",
+            endpoint: "/api/subscription/verify-apple-transaction",
             method: "POST",
-            body: try encoder.encode(body)
+            body: body
         )
         return try await execute(request)
     }
@@ -1297,7 +1323,10 @@ enum APIError: LocalizedError {
     case invalidResponse
     case forbidden
     case notFound
-    case limitExceeded(resource: String, used: Int, limit: Int)
+    case limitExceeded(resource: String, used: Int, limit: Int, freeWindowDaysRemaining: Int)
+    /// Thrown when the backend returns HTTP 402 with `error: "free_window_expired"`.
+    /// The caller should present `PaywallView` modally and refresh subscription state.
+    case freeWindowExpired(daysRemaining: Int)
     case serverError(Int, String)
     case httpError(Int, String)
     case decodingError(String)
@@ -1317,8 +1346,10 @@ enum APIError: LocalizedError {
             return "You don't have permission to perform this action"
         case .notFound:
             return "Resource not found"
-        case .limitExceeded(let resource, let used, let limit):
+        case .limitExceeded(let resource, let used, let limit, _):
             return "You've used \(used)/\(limit) \(resource). Upgrade to continue."
+        case .freeWindowExpired:
+            return "Your 10-day free window has ended. Subscribe to keep using Lisn."
         case .serverError(let code, let message):
             return "Server error (\(code)): \(message)"
         case .httpError(let code, let message):

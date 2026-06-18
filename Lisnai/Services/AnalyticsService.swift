@@ -105,6 +105,8 @@ extension AnalyticsService {
         // Activation
         case recordingStarted = "recording_started"
         case recordingCompleted = "recording_completed"
+        case recordingEnteredOverage = "recording_entered_overage"
+        case recordingHardStopped = "recording_hard_stopped"
 
         // Engagement
         case insightViewed = "insight_viewed"
@@ -115,6 +117,8 @@ extension AnalyticsService {
         // Monetization
         case paywallShown = "paywall_shown"
         case subscriptionPurchased = "subscription_purchased"
+        case subscriptionRestored = "subscription_restored"
+        case purchaseFailed = "purchase_failed"
         case trialStarted = "trial_started"
         case limitHit = "limit_hit"
     }

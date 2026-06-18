@@ -1,9 +1,9 @@
 import SwiftUI
-import SafariServices
-// import RevenueCat  // TODO: Uncomment when Apple IAP is ready
+import StoreKit
 
 struct PaywallView: View {
     @EnvironmentObject private var subscriptionService: SubscriptionService
+    @StateObject private var purchaseService = PurchaseService.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedTier: PaywallTier = .pro
@@ -11,10 +11,7 @@ struct PaywallView: View {
     @State private var isPurchasing = false
     @State private var errorMessage: String?
     @State private var showError = false
-    @State private var showCheckoutWebView = false
-    @State private var checkoutURL: URL?
-    @State private var isVerifyingPayment = false
-    @State private var verificationTimedOut = false
+    @State private var celebrate = false
 
     enum PaywallTier: String, CaseIterable {
         case pro, max
@@ -53,13 +50,14 @@ struct PaywallView: View {
         ("crown.fill", "900 transcription minutes/month"),
     ]
 
-    /// Razorpay plan alias for selected tier + billing
-    private var selectedPlanId: String {
+    /// App Store IAP product identifier for selected tier + billing.
+    /// Must match the product IDs configured in App Store Connect → Monetization → Subscriptions.
+    private var selectedProductId: String {
         switch (selectedTier, selectedBilling) {
-        case (.pro, .monthly): return "pro_monthly"
-        case (.pro, .yearly): return "pro_yearly"
-        case (.max, .monthly): return "max_monthly"
-        case (.max, .yearly): return "max_yearly"
+        case (.pro, .monthly): return "com.lisnai.app.pro.monthly"
+        case (.pro, .yearly): return "com.lisnai.app.pro.annual"
+        case (.max, .monthly): return "com.lisnai.app.max.monthly"
+        case (.max, .yearly): return "com.lisnai.app.max.yearly"
         }
     }
 
@@ -109,99 +107,17 @@ struct PaywallView: View {
         } message: {
             Text(errorMessage ?? "Something went wrong")
         }
-        .sheet(isPresented: $showCheckoutWebView) {
-            if let url = checkoutURL {
-                RazorpayCheckoutView(url: url)
-                    .onDisappear {
-                        // Start polling for subscription activation
-                        isVerifyingPayment = true
-                        verificationTimedOut = false
-                        Task {
-                            let activated = await subscriptionService.pollForSubscriptionUpdate()
-                            isVerifyingPayment = false
-                            if activated {
-                                // Success haptic + auto-dismiss
-                                let generator = UINotificationFeedbackGenerator()
-                                generator.notificationOccurred(.success)
-                                dismiss()
-                            } else {
-                                verificationTimedOut = true
-                            }
-                        }
-                    }
+        .lisnCelebration(isActive: $celebrate)
+        .task {
+            await purchaseService.loadProducts()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .subscriptionPurchased)) { _ in
+            celebrate = true
+            Task {
+                try? await Task.sleep(nanoseconds: 1_400_000_000)
+                dismiss()
             }
         }
-        .overlay {
-            if isVerifyingPayment {
-                ZStack {
-                    Color.black.opacity(0.6)
-                        .ignoresSafeArea()
-
-                    VStack(spacing: LisnSpacing.md) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .tint(LisnColors.accent)
-
-                        Text("Verifying your payment...")
-                            .font(LisnFont.titleSmall())
-                            .foregroundStyle(.white)
-
-                        Text("This usually takes a few seconds")
-                            .font(LisnFont.caption())
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
-                    .padding(LisnSpacing.xl)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
-                }
-                .transition(.opacity)
-            }
-
-            if verificationTimedOut {
-                ZStack {
-                    Color.black.opacity(0.6)
-                        .ignoresSafeArea()
-
-                    VStack(spacing: LisnSpacing.md) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 36))
-                            .foregroundStyle(LisnColors.warning)
-
-                        Text("Payment processing")
-                            .font(LisnFont.titleSmall())
-                            .foregroundStyle(.white)
-
-                        Text("Your payment is being processed.\nCheck back shortly — it may take a minute.")
-                            .font(LisnFont.bodySmall())
-                            .foregroundStyle(.white.opacity(0.7))
-                            .multilineTextAlignment(.center)
-
-                        Button {
-                            verificationTimedOut = false
-                        } label: {
-                            Text("OK")
-                                .font(LisnFont.labelLarge())
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, LisnSpacing.sm)
-                                .background(LisnColors.accent)
-                                .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
-                        }
-                    }
-                    .padding(LisnSpacing.xl)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
-                    .padding(.horizontal, LisnSpacing.xl)
-                }
-                .transition(.opacity)
-            }
-        }
-        .animation(.easeInOut(duration: 0.3), value: isVerifyingPayment)
-        .animation(.easeInOut(duration: 0.3), value: verificationTimedOut)
-        // TODO: Uncomment when Apple IAP is ready
-        // .task {
-        //     await subscriptionService.loadOfferings()
-        // }
     }
 
     // MARK: - Subviews
@@ -315,8 +231,8 @@ struct PaywallView: View {
 
     private var billingSelector: some View {
         VStack(spacing: LisnSpacing.sm) {
-            billingOption(.monthly, price: selectedTier == .pro ? "₹799/mo" : "₹1,999/mo")
-            billingOption(.yearly, price: selectedTier == .pro ? "₹7,999/yr" : "₹19,999/yr")
+            billingOption(.monthly, price: selectedTier == .pro ? "$9.99/mo" : "$19.99/mo")
+            billingOption(.yearly, price: selectedTier == .pro ? "$79.99/yr" : "$179.99/yr")
         }
     }
 
@@ -371,12 +287,14 @@ struct PaywallView: View {
             Button {
                 Task { await handleSubscribe() }
             } label: {
-                HStack {
+                HStack(spacing: LisnSpacing.xs) {
                     if isPurchasing {
                         ProgressView()
                             .tint(.white)
                     } else {
-                        Text("Subscribe Now")
+                        Image(systemName: "applelogo")
+                            .font(.system(size: 16, weight: .medium))
+                        Text(subscribeButtonLabel)
                             .font(LisnFont.titleSmall())
                     }
                 }
@@ -386,43 +304,85 @@ struct PaywallView: View {
                 .background(LisnColors.accent)
                 .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
             }
-            .disabled(isPurchasing)
+            .disabled(isPurchasing || purchaseService.products.isEmpty)
 
-            Text("Secure payment via Razorpay")
+            Text(subscribeFootnote)
                 .font(LisnFont.caption())
                 .foregroundStyle(LisnColors.textTertiary)
+                .multilineTextAlignment(.center)
         }
     }
 
+    /// CTA label adapts based on whether products have loaded yet.
+    private var subscribeButtonLabel: String {
+        if purchaseService.isLoadingProducts {
+            return "Loading…"
+        }
+        if purchaseService.products.isEmpty {
+            return "Subscriptions launching soon"
+        }
+        return "Subscribe via App Store"
+    }
+
+    private var subscribeFootnote: String {
+        if purchaseService.products.isEmpty {
+            return "We're finishing the App Store handshake — check back in a moment."
+        }
+        return "Billing handled securely by Apple. Cancel anytime in Settings."
+    }
+
     private func handleSubscribe() async {
+        guard !purchaseService.products.isEmpty else { return }
         isPurchasing = true
+        defer { isPurchasing = false }
         do {
-            let response = try await APIService.shared.createSubscription(planId: selectedPlanId)
-            if let url = URL(string: response.shortUrl) {
-                checkoutURL = url
-                showCheckoutWebView = true
+            try await purchaseService.purchase(productId: selectedProductId)
+            // Success path is driven by NotificationCenter.subscriptionPurchased
+        } catch PurchaseService.PurchaseError.userCancelled {
+            // Silent — user dismissed the Apple sheet
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+            AnalyticsService.shared.track(.purchaseFailed, properties: [
+                "product_id": selectedProductId,
+                "reason": error.localizedDescription
+            ])
+        }
+    }
+
+    private func handleRestore() async {
+        isPurchasing = true
+        defer { isPurchasing = false }
+        do {
+            try await purchaseService.restorePurchases()
+            await subscriptionService.syncUsageFromBackend()
+            if purchaseService.hasActiveEntitlement {
+                celebrate = true
+                try? await Task.sleep(nanoseconds: 1_400_000_000)
+                dismiss()
             } else {
-                errorMessage = "Invalid checkout URL received"
+                errorMessage = "No active subscriptions to restore."
                 showError = true
             }
         } catch {
             errorMessage = error.localizedDescription
             showError = true
         }
-        isPurchasing = false
     }
 
     private var footerLinks: some View {
         HStack(spacing: LisnSpacing.lg) {
-            // TODO: Uncomment when Apple IAP is ready
-            // Button("Restore Purchases") {
-            //     Task { await handleRestore() }
-            // }
-            // .font(LisnFont.caption())
-            // .foregroundStyle(LisnColors.textSecondary)
-            //
-            // Text("|")
-            //     .foregroundStyle(LisnColors.borderSubtle)
+            Button {
+                Task { await handleRestore() }
+            } label: {
+                Text("Restore")
+                    .font(LisnFont.caption())
+                    .foregroundStyle(LisnColors.textSecondary)
+            }
+            .disabled(isPurchasing)
+
+            Text("|")
+                .foregroundStyle(LisnColors.borderSubtle)
 
             Link("Terms", destination: URL(string: "https://lisnai.com/terms")!)
                 .font(LisnFont.caption())
@@ -448,7 +408,7 @@ struct PaywallView: View {
         let packageId: String
         switch (selectedTier, selectedBilling) {
         case (.pro, .monthly): packageId = "lisn_pro_monthly"
-        case (.pro, .yearly): packageId = "lisn_pro_yearly"
+        case (.pro, .yearly): packageId = "lisn_pro_annual"
         case (.max, .monthly): packageId = "lisn_max_monthly"
         case (.max, .yearly): packageId = "lisn_max_yearly"
         }
@@ -488,22 +448,3 @@ struct PaywallView: View {
     */
 }
 
-// MARK: - Razorpay Checkout WebView
-
-/// Opens the Razorpay-hosted checkout page in an in-app Safari view.
-/// URL is obtained from the backend POST /payments/create-subscription endpoint.
-struct RazorpayCheckoutView: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        let config = SFSafariViewController.Configuration()
-        config.entersReaderIfAvailable = false
-
-        let safari = SFSafariViewController(url: url, configuration: config)
-        safari.preferredBarTintColor = UIColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1.0)
-        safari.preferredControlTintColor = UIColor(red: 0.769, green: 0.506, blue: 0.239, alpha: 1.0)
-        return safari
-    }
-
-    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
-}

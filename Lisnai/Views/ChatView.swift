@@ -12,6 +12,9 @@ struct ChatView: View {
     @State private var shouldAutoScroll = true
     @State private var showPaywall = false
     @State private var showLimitCard = false
+    /// Days remaining in the free window — only meaningful while
+    /// `showPaywall == true` and the trigger was `freeWindowExpired`.
+    @State private var freeWindowDaysRemaining: Int = -1
 
     /// User's first name for the personalized header
     private var userFirstName: String? {
@@ -26,7 +29,8 @@ struct ChatView: View {
 
     var body: some View {
         ZStack {
-            // Inline upgrade card when limit hit
+            // Inline upgrade card when daily/monthly chat cap is hit.
+            // (Free-window expiry takes a different path — full-screen paywall.)
             if showLimitCard {
                 VStack {
                     Spacer()
@@ -359,12 +363,29 @@ struct ChatView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        // Paywall disabled — will enforce via Apple IAP later
-        // let limitCheck = subscriptionService.canChat()
-        // if !limitCheck.isAllowed {
-        //     showLimitCard = true
-        //     return
-        // }
+        // Client-side usage gate. Backend also enforces and may return 402/429,
+        // but this short-circuit avoids burning a request when we already know
+        // the user is blocked and gives them a faster paywall.
+        switch subscriptionService.canChat() {
+        case .allowed:
+            break
+        case .denied:
+            AnalyticsService.shared.track(.paywallShown, properties: [
+                "trigger_source": "chat_limit"
+            ])
+            withAnimation(.easeOut(duration: 0.2)) {
+                showLimitCard = true
+            }
+            return
+        case .freeWindowExpired(let days):
+            freeWindowDaysRemaining = days
+            AnalyticsService.shared.track(.paywallShown, properties: [
+                "trigger_source": "chat_free_window_expired",
+                "days_remaining": days
+            ])
+            showPaywall = true
+            return
+        }
 
         LisnHaptics.light()
         isInputFocused = false
@@ -375,6 +396,29 @@ struct ChatView: View {
 
         Task {
             await chatService.sendMessage(text)
+            // If the backend rejected mid-flight (e.g. cache was stale and the
+            // free window expired between checks), the streaming service will
+            // surface the error and we react on the next render via the
+            // freeWindowExpired pathway below.
+            await reactToChatError()
+        }
+    }
+
+    /// Inspect the chat service's last error and, if it was a free-window
+    /// expiry, present the paywall. This handles the race where the local
+    /// cache said .allowed but the backend disagreed.
+    private func reactToChatError() async {
+        guard let err = chatService.error else { return }
+        // We don't have a typed error reference here, so match on the
+        // localized description as a safe heuristic.
+        if err.localizedDescription.contains("10-day free window") {
+            await subscriptionService.syncUsageFromBackend()
+            freeWindowDaysRemaining = subscriptionService.freeWindow?.daysRemaining ?? -1
+            AnalyticsService.shared.track(.paywallShown, properties: [
+                "trigger_source": "chat_free_window_expired",
+                "days_remaining": freeWindowDaysRemaining
+            ])
+            showPaywall = true
         }
     }
 }

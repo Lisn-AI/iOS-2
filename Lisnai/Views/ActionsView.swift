@@ -5,6 +5,7 @@ import MessageUI
 /// Unified Actions page with Active/Insights tabs
 struct ActionsView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject var subscriptionService: SubscriptionService
     @ObservedObject var viewModel: ActionsViewModel
     @State private var selectedTab: ActionTab = .active
     @State private var selectedSuggestion: ProactiveSuggestion?
@@ -17,6 +18,10 @@ struct ActionsView: View {
     @State private var successMessage = ""
     @State private var actionToEdit: PendingAction?
     @State private var actionToExecuteAfterDismiss: PendingAction?
+    // Paywall + action-quota gating state
+    @State private var showPaywall = false
+    @State private var showActionLimitAlert = false
+    @State private var actionLimitMessage = ""
 
     enum ActionTab: String, CaseIterable {
         case active = "Active"
@@ -72,9 +77,18 @@ struct ActionsView: View {
                 // Execute AFTER the sheet is fully dismissed — prevents UIKit present() conflicts
                 guard let action = actionToExecuteAfterDismiss else { return }
                 actionToExecuteAfterDismiss = nil
-                Task {
-                    let result = await viewModel.executeAction(action)
-                    handleActionResult(result, for: action)
+                // Gate on action quota / free-window before executing.
+                switch subscriptionService.gateAction(triggerPrefix: "action") {
+                case .allowed:
+                    Task {
+                        let result = await viewModel.executeAction(action)
+                        handleActionResult(result, for: action)
+                    }
+                case .denied(let used, let limit):
+                    actionLimitMessage = "You've used \(used)/\(limit) actions today. Upgrade to keep creating actions."
+                    showActionLimitAlert = true
+                case .freeWindowExpired:
+                    showPaywall = true
                 }
             }) { action in
                 ActionEditSheet(
@@ -85,6 +99,16 @@ struct ActionsView: View {
                     },
                     onCancel: { actionToEdit = nil }
                 )
+            }
+            .alert("Action limit reached", isPresented: $showActionLimitAlert) {
+                Button("Upgrade") { showPaywall = true }
+                Button("Not now", role: .cancel) { }
+            } message: {
+                Text(actionLimitMessage)
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
+                    .environmentObject(subscriptionService)
             }
             .sheet(item: $selectedSuggestion) { suggestion in
                 SuggestionDetailSheet(

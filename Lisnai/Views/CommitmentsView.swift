@@ -5,6 +5,7 @@ import MessageUI
 /// View for displaying and managing user commitments detected from conversations
 struct CommitmentsView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject var subscriptionService: SubscriptionService
     @StateObject private var viewModel = CommitmentsViewModel()
     @State private var selectedFilter: CommitmentFilter = .all
     @State private var selectedCommitment: Commitment?
@@ -18,6 +19,10 @@ struct CommitmentsView: View {
     @State private var pendingEmailAction: PendingAction?
     @State private var emailDraftDetails: EmailDraftDetails?
     @State private var showMailComposer = false
+    // Paywall + action-quota gating state
+    @State private var showPaywall = false
+    @State private var showActionLimitAlert = false
+    @State private var actionLimitMessage = ""
 
     var body: some View {
         NavigationStack {
@@ -85,11 +90,35 @@ struct CommitmentsView: View {
                     )
                 }
             }
+            .alert("Action limit reached", isPresented: $showActionLimitAlert) {
+                Button("Upgrade") { showPaywall = true }
+                Button("Not now", role: .cancel) { }
+            } message: {
+                Text(actionLimitMessage)
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
+                    .environmentObject(subscriptionService)
+            }
             .sheet(item: $actionFromCommitment) { action in
                 ActionEditSheet(
                     action: action,
                     onConfirm: { editedAction in
                         actionFromCommitment = nil
+                        // Gate on action quota / free-window before executing.
+                        switch subscriptionService.gateAction(triggerPrefix: "action") {
+                        case .denied(let used, let limit):
+                            actionLimitMessage = "You've used \(used)/\(limit) actions today. Upgrade to keep creating actions."
+                            showActionLimitAlert = true
+                            commitmentForAction = nil
+                            return
+                        case .freeWindowExpired:
+                            showPaywall = true
+                            commitmentForAction = nil
+                            return
+                        case .allowed:
+                            break
+                        }
                         Task {
                             let result = await ActionExecutor.shared.executeAction(editedAction)
 

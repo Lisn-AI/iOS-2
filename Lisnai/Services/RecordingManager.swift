@@ -52,6 +52,22 @@ class RecordingManager: NSObject, ObservableObject {
     @Published var audioLevel: CGFloat = 0
     @Published var backgroundProcessingCount = 0 // Phase 4: number of sessions finalizing in background
 
+    // MARK: - Free-tier recording state (driven by /api/recording/permission)
+    /// Daily budget in minutes (e.g. 10 for free). -1 means unlimited (paid tier).
+    @Published var dailyLimitMinutes: Double = -1
+    /// Minutes already used in today's budget (from backend at recording start).
+    @Published var freeMinutesUsedToday: Double = 0
+    /// Minutes left in today's budget before tipping into overage. -1 = unlimited.
+    @Published var freeMinutesRemainingToday: Double = -1
+    /// Minute mark at which we hard-stop the recording. -1 = no hard stop.
+    @Published var hardStopMinutes: Double = -1
+    /// True while the user is past their daily budget but within the one-time grace.
+    @Published var isInOverageMode = false
+    /// Set true when hard-stop fires so iOS can show a celebration/explainer.
+    @Published var didReachHardStop = false
+    /// Days remaining in the 10-day free window. -1 = N/A (subscribed/admin).
+    @Published var freeWindowDaysRemaining: Int = -1
+
     /// Whether recording is paused (either manually or for a call)
     var isPaused: Bool { isPausedForCall || isPausedManually }
 
@@ -680,17 +696,86 @@ class RecordingManager: NSObject, ObservableObject {
         }
     }
 
+    /// Public entry point. Runs the backend permission check before kicking off
+    /// the audio engine — that's how we gate free-tier users without ever wasting
+    /// audio buffer cycles on a recording that the server will reject anyway.
     func startRecording() {
-        // Usage check is informational — don't block recording
-        // Paywall disabled — will enforce via Apple IAP later
-        // let limitCheck = SubscriptionService.shared.canTranscribe()
-        // if !limitCheck.isAllowed {
-        //     NotificationCenter.default.post(name: .showPaywall, object: nil)
-        //     return
-        // }
+        Task { @MainActor in
+            await checkPermissionAndStart()
+        }
+    }
 
+    private func checkPermissionAndStart() async {
+        // Step 1 — Backend pre-check (free-tier window + daily budget + overage state)
+        do {
+            let permission = try await APIService.shared.getRecordingPermission()
+
+            // Free-window expired → show paywall, do NOT start recording
+            if permission.requiresPaywall {
+                AnalyticsService.shared.track(.paywallShown, properties: [
+                    "trigger_source": "free_window_expired_recording"
+                ])
+                NotificationCenter.default.post(
+                    name: .showPaywall,
+                    object: nil,
+                    userInfo: ["reason": "free_window_expired"]
+                )
+                return
+            }
+
+            // Daily budget hit AND grace overage already used today → block
+            if permission.dailyLimitReached {
+                AnalyticsService.shared.track(.paywallShown, properties: [
+                    "trigger_source": "daily_recording_limit"
+                ])
+                NotificationCenter.default.post(
+                    name: .showPaywall,
+                    object: nil,
+                    userInfo: ["reason": "daily_limit_reached"]
+                )
+                return
+            }
+
+            // Cache permission state — drives badge UI, banner, and hard-stop logic
+            applyPermission(permission)
+        } catch {
+            // Network failure shouldn't block the user. Server will still validate on upload.
+            print("[RecordingManager] Permission check failed: \(error.localizedDescription). Allowing locally.")
+            // Reset to "no enforced cap" so updateDurationDisplay doesn't auto-stop
+            dailyLimitMinutes = -1
+            hardStopMinutes = -1
+            isInOverageMode = false
+            freeMinutesRemainingToday = -1
+        }
+
+        beginRecording()
+    }
+
+    private func applyPermission(_ p: RecordingPermissionResponse) {
+        dailyLimitMinutes = p.dailyLimitMinutes
+        freeMinutesUsedToday = p.minutesUsedToday
+        freeMinutesRemainingToday = p.minutesRemainingInBudget
+        hardStopMinutes = p.hardStopAtMinutes
+        isInOverageMode = p.startsInOverage
+        freeWindowDaysRemaining = p.freeWindowDaysRemaining
+        didReachHardStop = false
+
+        // If the user starts in overage mode, fire the banner notification immediately
+        if p.startsInOverage {
+            NotificationCenter.default.post(
+                name: .recordingEnteredOverage,
+                object: nil,
+                userInfo: ["hardStopMinutes": p.hardStopAtMinutes]
+            )
+        }
+    }
+
+    private func beginRecording() {
         AnalyticsService.shared.track(.recordingStarted, properties: [
-            "source": "home"
+            "source": "home",
+            "starts_in_overage": isInOverageMode,
+            "daily_limit_minutes": dailyLimitMinutes,
+            "minutes_used_today": freeMinutesUsedToday
         ])
 
         // Setup audio session before first recording
@@ -1804,10 +1889,46 @@ class RecordingManager: NSObject, ObservableObject {
     private func updateDurationDisplay(duration: TimeInterval) {
         // Add any elapsed time from before a pause (for accurate total duration)
         let totalDuration = duration + elapsedTimeBeforePause
+        let totalMinutes = totalDuration / 60.0
         let hours = Int(totalDuration) / 3600
         let minutes = (Int(totalDuration) % 3600) / 60
         let seconds = Int(totalDuration) % 60
         recordingDuration = String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+
+        // Free-tier overage enforcement
+        // Skip entirely for paid tiers / admin (signalled by hardStopMinutes < 0)
+        guard hardStopMinutes > 0 else { return }
+
+        // Transition into overage mode the moment we cross the daily budget
+        if !isInOverageMode && dailyLimitMinutes > 0 && totalMinutes >= dailyLimitMinutes {
+            isInOverageMode = true
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            AnalyticsService.shared.track(.recordingEnteredOverage, properties: [
+                "minutes_used_today": totalMinutes,
+                "hard_stop_minutes": hardStopMinutes
+            ])
+            NotificationCenter.default.post(
+                name: .recordingEnteredOverage,
+                object: nil,
+                userInfo: ["hardStopMinutes": hardStopMinutes]
+            )
+        }
+
+        // Hard-stop at the grace ceiling
+        if totalMinutes >= hardStopMinutes {
+            didReachHardStop = true
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            AnalyticsService.shared.track(.recordingHardStopped, properties: [
+                "minutes_recorded": totalMinutes,
+                "hard_stop_minutes": hardStopMinutes
+            ])
+            NotificationCenter.default.post(
+                name: .recordingHardStopped,
+                object: nil,
+                userInfo: ["minutesRecorded": totalMinutes]
+            )
+            stopRecording()
+        }
     }
 
     private func getDocumentsDirectory() -> URL {

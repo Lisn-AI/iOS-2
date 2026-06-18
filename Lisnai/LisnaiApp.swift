@@ -14,8 +14,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         FirebaseApp.configure()
 
-        // Configure RevenueCat for subscriptions
+        // Configure RevenueCat for subscriptions (legacy guard — still off)
         SubscriptionService.shared.configure()
+
+        // Configure StoreKit 2 — registers Transaction.updates listener so
+        // renewals and refunds get picked up while the app is foregrounded.
+        Task { @MainActor in
+            PurchaseService.shared.configure()
+            await PurchaseService.shared.loadProducts()
+        }
 
         // Configure Mixpanel product analytics
         Task { @MainActor in
@@ -212,6 +219,9 @@ extension Notification.Name {
     static let showPaywall = Notification.Name("showPaywall")
     static let actionCompleted = Notification.Name("actionCompleted")
     static let recordingSaved = Notification.Name("recordingSaved")
+    static let recordingEnteredOverage = Notification.Name("recordingEnteredOverage")
+    static let recordingHardStopped = Notification.Name("recordingHardStopped")
+    static let subscriptionPurchased = Notification.Name("subscriptionPurchased")
 }
 
 @main
