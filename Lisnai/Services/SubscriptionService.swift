@@ -150,16 +150,61 @@ class SubscriptionService: NSObject, ObservableObject {
         updateFromCustomerInfo(customerInfo)
     }
 
+    // MARK: - Local Tier Override (from StoreKit)
+
+    /// Apply the tier from local StoreKit entitlements immediately — don't wait
+    /// for the backend. This ensures the UI reflects reality even when the
+    /// backend is unreachable (network timeout, cold start, etc.).
+    ///
+    /// The backend sync still runs in the background to update usage/limits,
+    /// but the TIER itself is driven by what Apple's StoreKit reports locally.
+    func applyLocalEntitlement(tier localTier: String, productId: String?) {
+        let mappedTier: SubscriptionTier
+        switch localTier {
+        case "pro": mappedTier = .pro
+        case "max": mappedTier = .max
+        default: mappedTier = .free
+        }
+
+        // Only upgrade — never downgrade from local signal alone.
+        // Downgrades should come from the backend (which has the authoritative
+        // cancel/expire state from Apple's webhook).
+        let tierRank: [SubscriptionTier: Int] = [.free: 0, .pro: 1, .max: 2]
+        guard (tierRank[mappedTier] ?? 0) >= (tierRank[tier] ?? 0) else { return }
+
+        if tier != mappedTier {
+            print("[SubscriptionService] Local entitlement override: \(tier.rawValue) → \(mappedTier.rawValue)")
+            tier = mappedTier
+            status = .active
+            AnalyticsService.shared.setUserProperty("current_tier", value: tier.rawValue)
+            AnalyticsService.shared.setSuperProperty("current_tier", value: tier.rawValue)
+        }
+    }
+
     // MARK: - Backend Sync
 
-    /// Sync subscription status and usage from backend
+    /// Sync subscription status and usage from backend.
+    /// The backend is authoritative for usage counters and limits, but the
+    /// tier may have already been set by `applyLocalEntitlement` — so we take
+    /// the HIGHER of backend tier vs current (locally-set) tier.
     func syncUsageFromBackend() async {
         let previousStatus = status
         let previousTier = tier
         do {
             let response = try await APIService.shared.getSubscriptionStatus()
-            tier = response.tier
-            status = response.status
+
+            // Take the higher tier between backend and local StoreKit
+            let tierRank: [SubscriptionTier: Int] = [.free: 0, .pro: 1, .max: 2]
+            let backendRank = tierRank[response.tier] ?? 0
+            let localRank = tierRank[tier] ?? 0
+
+            if backendRank >= localRank {
+                tier = response.tier
+                status = response.status
+            }
+            // If local is higher (e.g. just purchased but backend hasn't processed),
+            // keep the local tier but still update usage/limits from backend.
+
             limits = response.limits
             usage = response.usage
             freeWindow = response.freeWindow
@@ -177,7 +222,7 @@ class SubscriptionService: NSObject, ObservableObject {
                     "tier": tier.rawValue
                 ])
             }
-            if previousTier != response.tier {
+            if previousTier != tier {
                 AnalyticsService.shared.setUserProperty("current_tier", value: tier.rawValue)
                 AnalyticsService.shared.setSuperProperty("current_tier", value: tier.rawValue)
             }

@@ -212,17 +212,23 @@ final class PurchaseService: ObservableObject {
         hasActiveEntitlement = bestProduct != nil
         activeProductId = bestProduct
 
-        // Detect state changes and sync backend
+        // Detect state changes — apply immediately to SubscriptionService
         if previousProduct != bestProduct {
             let newTier = bestProduct.flatMap { Self.productTierMap[$0] } ?? "free"
             print("[PurchaseService] Entitlement changed: \(previousProduct ?? "none") → \(bestProduct ?? "none") (tier: \(newTier))")
 
-            // If user lost entitlement (cancel/expire), tell backend
-            if wasActive && !hasActiveEntitlement {
-                print("[PurchaseService] Entitlement lost — syncing backend to free tier")
-            }
+            // Apply locally first (instant UI update)
+            SubscriptionService.shared.applyLocalEntitlement(
+                tier: newTier,
+                productId: bestProduct
+            )
 
-            await SubscriptionService.shared.syncUsageFromBackend()
+            // If user lost entitlement (cancel/expire), force backend sync
+            // so the backend can downgrade properly
+            if wasActive && !hasActiveEntitlement {
+                print("[PurchaseService] Entitlement lost — forcing backend sync")
+                await SubscriptionService.shared.syncUsageFromBackend()
+            }
         }
     }
 
@@ -244,26 +250,38 @@ final class PurchaseService: ObservableObject {
         case .verified(let transaction):
             print("[PurchaseService] Verified \(source) for product \(transaction.productID) (txId \(transaction.id))")
 
-            // Tell backend to upgrade the tier immediately — don't wait for the
-            // server-to-server notification, that's just for renewals/cancels.
-            // The JWS lives on VerificationResult, not Transaction.
-            do {
-                let txJWS = transactionResult.jwsRepresentation
-                try await APIService.shared.verifyAppStoreTransaction(jws: txJWS)
-            } catch {
-                print("[PurchaseService] Backend verify failed: \(error.localizedDescription) — will retry on next foreground sync")
-            }
-
+            // Step 1: Update local entitlements IMMEDIATELY — this drives the UI.
+            // Don't wait for the backend — network may be slow or down.
             await refreshEntitlements()
-            await SubscriptionService.shared.syncUsageFromBackend()
+            let newTier = Self.productTierMap[transaction.productID] ?? "free"
+            SubscriptionService.shared.applyLocalEntitlement(
+                tier: newTier,
+                productId: transaction.productID
+            )
 
+            // Step 2: Notify UI so PaywallView can celebrate + dismiss
             AnalyticsService.shared.track(.subscriptionPurchased, properties: [
                 "product_id": transaction.productID,
                 "source": source
             ])
             NotificationCenter.default.post(name: .subscriptionPurchased, object: nil)
 
+            // Step 3: Finish the transaction so Apple stops re-delivering it
             await transaction.finish()
+
+            // Step 4: Tell backend (background, non-blocking, retry-safe).
+            // If this fails, syncOnForeground() retries next time.
+            Task.detached { @MainActor in
+                do {
+                    let txJWS = transactionResult.jwsRepresentation
+                    try await APIService.shared.verifyAppStoreTransaction(jws: txJWS)
+                    print("[PurchaseService] Backend verify succeeded for \(transaction.productID)")
+                } catch {
+                    print("[PurchaseService] Backend verify failed: \(error.localizedDescription) — will retry on foreground")
+                }
+                // Sync usage/limits from backend regardless
+                await SubscriptionService.shared.syncUsageFromBackend()
+            }
 
         case .unverified(_, let error):
             print("[PurchaseService] Unverified \(source) transaction: \(error.localizedDescription)")
