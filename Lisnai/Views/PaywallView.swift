@@ -46,12 +46,39 @@ struct PaywallView: View {
     /// Is this user on Pro (but not Max)?
     private var isOnPro: Bool { currentTier == .pro }
 
-    /// Can the selected tier actually be purchased (not already owned)?
+    /// The exact product ID the user currently has (from StoreKit entitlements).
+    /// nil = free / no subscription.
+    private var currentProductId: String? { PurchaseService.shared.activeProductId }
+
+    /// Can the selected combo be purchased?
+    /// Blocked only when: (a) exact same product already owned, or (b) downgrading tier in-app (Max→Pro)
     private var canPurchaseSelected: Bool {
-        switch selectedTier {
-        case .pro: return currentTier == .free
-        case .max: return currentTier != .max
-        }
+        if selectedProductId == currentProductId { return false }
+        if currentTier == .max && selectedTier == .pro { return false }
+        return true
+    }
+
+    /// Is the selected combo the user's current active product?
+    private var isSelectedCurrentProduct: Bool {
+        selectedProductId == currentProductId
+    }
+
+    /// What kind of action is the user taking?
+    private var purchaseAction: PurchaseAction {
+        if currentTier == .free { return .newPurchase }
+        if currentTier == .max && selectedTier == .pro { return .blocked }
+        if selectedProductId == currentProductId { return .alreadyOwned }
+        if selectedTier == .max && currentTier == .pro { return .tierUpgrade }
+        // Same tier, different billing cycle
+        return .billingChange
+    }
+
+    private enum PurchaseAction {
+        case newPurchase
+        case tierUpgrade
+        case billingChange
+        case alreadyOwned
+        case blocked
     }
 
     /// App Store IAP product identifier for selected tier + billing
@@ -97,13 +124,9 @@ struct PaywallView: View {
                 headerSection
                 statusBanner
                 featureList
-
-                if !isOnMax {
-                    tierToggle
-                    billingSelector
-                    purchaseButton
-                }
-
+                tierToggle
+                billingSelector
+                purchaseButton
                 manageSubscriptionLink
                 footerLinks
             }
@@ -165,10 +188,10 @@ struct PaywallView: View {
 
     private var headerTitle: String {
         if isOnMax {
-            return "You're on the\nbest plan"
+            return "You're on\nLisn Max"
         }
         if isOnPro {
-            return "Upgrade to Max"
+            return "You're on Pro.\nGo further?"
         }
         return "Unlock Your Full\nMemory Assistant"
     }
@@ -307,45 +330,23 @@ struct PaywallView: View {
     private var tierToggle: some View {
         HStack(spacing: 0) {
             ForEach(PaywallTier.allCases, id: \.self) { tier in
-                let isCurrentPlan = (tier == .pro && isOnPro)
-                let isDisabled = isCurrentPlan
-
                 Button {
-                    guard !isDisabled else { return }
                     withAnimation(.easeInOut(duration: 0.2)) {
                         selectedTier = tier
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Text(tier.displayName)
-                            .font(LisnFont.labelLarge())
-
-                        if isCurrentPlan {
-                            Text("Current")
-                                .font(LisnFont.caption())
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
-                                .background(.white.opacity(0.25))
-                                .clipShape(Capsule())
+                    Text(tier.displayName)
+                        .font(LisnFont.labelLarge())
+                        .foregroundStyle(selectedTier == tier ? .white : LisnColors.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, LisnSpacing.sm)
+                        .background {
+                            if selectedTier == tier {
+                                Capsule()
+                                    .fill(LisnColors.accent)
+                            }
                         }
-                    }
-                    .foregroundStyle(
-                        isDisabled ? LisnColors.textTertiary :
-                        (selectedTier == tier ? .white : LisnColors.textSecondary)
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, LisnSpacing.sm)
-                    .background {
-                        if selectedTier == tier && !isDisabled {
-                            Capsule()
-                                .fill(LisnColors.accent)
-                        } else if isDisabled {
-                            Capsule()
-                                .fill(LisnColors.bgSecondary.opacity(0.5))
-                        }
-                    }
                 }
-                .disabled(isDisabled)
             }
         }
         .padding(LisnSpacing.xxxs)
@@ -362,8 +363,20 @@ struct PaywallView: View {
         }
     }
 
+    /// The product ID this billing row represents (for the currently selected tier)
+    private func productIdFor(_ tier: PaywallTier, _ period: BillingPeriod) -> String {
+        switch (tier, period) {
+        case (.pro, .monthly): return "com.lisnai.app.pro.monthly"
+        case (.pro, .yearly): return "com.lisnai.app.pro.annual"
+        case (.max, .monthly): return "com.lisnai.app.max.monthly"
+        case (.max, .yearly): return "com.lisnai.app.max.yearly"
+        }
+    }
+
     private func billingOption(_ period: BillingPeriod, price: String) -> some View {
-        Button {
+        let isThisCurrentProduct = productIdFor(selectedTier, period) == currentProductId
+
+        return Button {
             withAnimation(.easeInOut(duration: 0.15)) {
                 selectedBilling = period
             }
@@ -376,9 +389,17 @@ struct PaywallView: View {
                     HStack {
                         Text(period == .monthly ? "Monthly" : "Yearly")
                             .font(LisnFont.labelLarge())
-                            .foregroundStyle(LisnColors.textPrimary)
+                            .foregroundStyle(isThisCurrentProduct ? LisnColors.textTertiary : LisnColors.textPrimary)
 
-                        if let savings = period.savingsText {
+                        if isThisCurrentProduct {
+                            Text("Current")
+                                .font(LisnFont.captionBold())
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, LisnSpacing.xs)
+                                .padding(.vertical, 2)
+                                .background(LisnColors.accent.opacity(0.6))
+                                .clipShape(Capsule())
+                        } else if let savings = period.savingsText {
                             Text(savings)
                                 .font(LisnFont.captionBold())
                                 .foregroundStyle(.white)
@@ -394,16 +415,18 @@ struct PaywallView: View {
 
                 Text(price)
                     .font(LisnFont.titleSmall())
-                    .foregroundStyle(LisnColors.textPrimary)
+                    .foregroundStyle(isThisCurrentProduct ? LisnColors.textTertiary : LisnColors.textPrimary)
             }
             .padding(LisnSpacing.md)
             .background(LisnColors.bgElevated)
             .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
             .overlay {
-                if selectedBilling == period {
-                    RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous)
-                        .stroke(LisnColors.accent, lineWidth: 2)
-                }
+                RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous)
+                    .stroke(
+                        isThisCurrentProduct ? LisnColors.accent.opacity(0.4) :
+                        (selectedBilling == period ? LisnColors.accent : Color.clear),
+                        lineWidth: 2
+                    )
             }
         }
     }
@@ -442,29 +465,31 @@ struct PaywallView: View {
     }
 
     private var subscribeButtonLabel: String {
-        if purchaseService.isLoadingProducts {
-            return "Loading..."
+        if purchaseService.isLoadingProducts { return "Loading..." }
+        if purchaseService.products.isEmpty { return "Subscriptions launching soon" }
+
+        switch purchaseAction {
+        case .alreadyOwned: return "Current plan"
+        case .blocked: return "Manage in Settings"
+        case .tierUpgrade: return "Upgrade to \(selectedTier.displayName)"
+        case .billingChange:
+            let cycle = selectedBilling == .yearly ? "Yearly" : "Monthly"
+            return "Switch to \(cycle)"
+        case .newPurchase: return "Subscribe via App Store"
         }
-        if purchaseService.products.isEmpty {
-            return "Subscriptions launching soon"
-        }
-        if !canPurchaseSelected {
-            return "Current plan"
-        }
-        if isOnPro && selectedTier == .max {
-            return "Upgrade to Max"
-        }
-        return "Subscribe via App Store"
     }
 
     private var subscribeFootnote: String {
         if purchaseService.products.isEmpty {
             return "We're finishing the App Store handshake — check back in a moment."
         }
-        if isOnPro && selectedTier == .max {
-            return "Apple prorates the upgrade. You only pay the difference."
+        switch purchaseAction {
+        case .alreadyOwned: return "You're on this plan. Switch billing or upgrade above."
+        case .blocked: return "To change to a lower tier, manage your subscription in Apple Settings."
+        case .tierUpgrade: return "Apple prorates the upgrade. You only pay the difference."
+        case .billingChange: return "Your new billing cycle starts at the next renewal."
+        case .newPurchase: return "Billing handled securely by Apple. Cancel anytime in Settings."
         }
-        return "Billing handled securely by Apple. Cancel anytime in Settings."
     }
 
     // MARK: - Manage subscription link (for active subscribers)
