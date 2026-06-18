@@ -35,23 +35,26 @@ struct PaywallView: View {
         }
     }
 
-    // Feature list for the paywall
-    private let features: [(icon: String, text: String)] = [
-        ("waveform.circle.fill", "600+ transcription minutes/month"),
-        ("bubble.left.and.text.bubble.right.fill", "200+ chat messages/month"),
-        ("magnifyingglass.circle.fill", "50+ memory searches/month"),
-        ("bolt.circle.fill", "30+ actions/month"),
-        ("icloud.fill", "Cloud backup & sync"),
-        ("clock.arrow.circlepath", "Unlimited history retention"),
-    ]
+    // MARK: - Tier-aware state
 
-    private let maxExtras: [(icon: String, text: String)] = [
-        ("sparkles", "Unlimited chat, search & actions"),
-        ("crown.fill", "900 transcription minutes/month"),
-    ]
+    /// What the user currently has (from backend, authoritative)
+    private var currentTier: SubscriptionTier { subscriptionService.tier }
 
-    /// App Store IAP product identifier for selected tier + billing.
-    /// Must match the product IDs configured in App Store Connect → Monetization → Subscriptions.
+    /// Is this user already on the highest plan?
+    private var isOnMax: Bool { subscriptionService.isMax }
+
+    /// Is this user on Pro (but not Max)?
+    private var isOnPro: Bool { currentTier == .pro }
+
+    /// Can the selected tier actually be purchased (not already owned)?
+    private var canPurchaseSelected: Bool {
+        switch selectedTier {
+        case .pro: return currentTier == .free
+        case .max: return currentTier != .max
+        }
+    }
+
+    /// App Store IAP product identifier for selected tier + billing
     private var selectedProductId: String {
         switch (selectedTier, selectedBilling) {
         case (.pro, .monthly): return "com.lisnai.app.pro.monthly"
@@ -61,30 +64,47 @@ struct PaywallView: View {
         }
     }
 
+    // MARK: - Feature lists per tier
+
+    private var proFeatures: [(icon: String, text: String)] {
+        [
+            ("waveform.circle.fill", "30 hours recording / month"),
+            ("bubble.left.and.text.bubble.right.fill", "200 chat messages / month"),
+            ("magnifyingglass.circle.fill", "100 memory searches / month"),
+            ("bolt.circle.fill", "50 actions / month"),
+            ("icloud.fill", "Cloud backup & sync"),
+            ("clock.arrow.circlepath", "Unlimited history retention"),
+        ]
+    }
+
+    private var maxFeatures: [(icon: String, text: String)] {
+        [
+            ("waveform.circle.fill", "50 hours recording / month"),
+            ("bubble.left.and.text.bubble.right.fill", "Unlimited chat messages"),
+            ("magnifyingglass.circle.fill", "Unlimited memory searches"),
+            ("bolt.circle.fill", "Unlimited actions"),
+            ("icloud.fill", "Cloud backup & sync"),
+            ("clock.arrow.circlepath", "Unlimited history retention"),
+            ("person.crop.circle.badge.checkmark", "Priority support"),
+        ]
+    }
+
+    // MARK: - Body
+
     var body: some View {
         ScrollView {
             VStack(spacing: LisnSpacing.xl) {
-                // Header
                 headerSection
-
-                // Current plan badge (if subscribed)
-                if subscriptionService.isPro {
-                    currentPlanBadge
-                }
-
-                // Feature list
+                statusBanner
                 featureList
 
-                // Tier toggle
-                tierToggle
+                if !isOnMax {
+                    tierToggle
+                    billingSelector
+                    purchaseButton
+                }
 
-                // Billing selector
-                billingSelector
-
-                // CTA
-                purchaseButton
-
-                // Footer links
+                manageSubscriptionLink
                 footerLinks
             }
             .padding(.horizontal, LisnSpacing.lg)
@@ -93,9 +113,7 @@ struct PaywallView: View {
         }
         .background(LisnColors.bgPrimary)
         .overlay(alignment: .topTrailing) {
-            Button {
-                dismiss()
-            } label: {
+            Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title2)
                     .foregroundStyle(LisnColors.textTertiary)
@@ -110,6 +128,10 @@ struct PaywallView: View {
         .lisnCelebration(isActive: $celebrate)
         .task {
             await purchaseService.loadProducts()
+            // Auto-select the right default based on current tier
+            if isOnPro {
+                selectedTier = .max
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .subscriptionPurchased)) { _ in
             celebrate = true
@@ -120,68 +142,146 @@ struct PaywallView: View {
         }
     }
 
-    // MARK: - Subviews
+    // MARK: - Header
 
     private var headerSection: some View {
         VStack(spacing: LisnSpacing.sm) {
-            Image(systemName: "crown.fill")
+            Image(systemName: isOnMax ? "crown.fill" : (isOnPro ? "arrow.up.circle.fill" : "crown.fill"))
                 .font(.system(size: 44))
                 .foregroundStyle(LisnColors.accent)
 
-            Text("Unlock Your Full\nMemory Assistant")
+            Text(headerTitle)
                 .font(LisnFont.displayMedium())
                 .foregroundStyle(LisnColors.textPrimary)
                 .multilineTextAlignment(.center)
 
-            if subscriptionService.isTrialActive {
-                Text("\(subscriptionService.trialDaysRemaining) days left in your free trial")
+            if let subtitle = headerSubtitle {
+                Text(subtitle)
                     .font(LisnFont.bodyMedium())
                     .foregroundStyle(LisnColors.accent)
             }
         }
     }
 
-    /// Shows the user's current plan as a prominent badge
-    private var currentPlanBadge: some View {
-        HStack(spacing: LisnSpacing.sm) {
-            Image(systemName: subscriptionService.isMax ? "crown.fill" : "star.fill")
-                .font(.system(size: 16))
-                .foregroundStyle(.white)
-
-            Text("Current Plan: \(subscriptionService.tier.displayName)")
-                .font(LisnFont.labelLarge())
-                .foregroundStyle(.white)
-
-            Spacer()
-
-            Text("Active")
-                .font(LisnFont.captionBold())
-                .foregroundStyle(.white.opacity(0.9))
-                .padding(.horizontal, LisnSpacing.xs)
-                .padding(.vertical, 3)
-                .background(.white.opacity(0.2))
-                .clipShape(Capsule())
+    private var headerTitle: String {
+        if isOnMax {
+            return "You're on the\nbest plan"
         }
-        .padding(LisnSpacing.md)
-        .background(
-            LinearGradient(
-                colors: [LisnColors.accent, LisnColors.orbDark],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+        if isOnPro {
+            return "Upgrade to Max"
+        }
+        return "Unlock Your Full\nMemory Assistant"
     }
+
+    private var headerSubtitle: String? {
+        if isOnMax, subscriptionService.isCancelledButActive,
+           let date = subscriptionService.cancellationExpiryDisplay {
+            return "Your plan expires on \(date)"
+        }
+        if isOnPro, subscriptionService.isCancelledButActive,
+           let date = subscriptionService.cancellationExpiryDisplay {
+            return "Pro expires on \(date). Upgrade or renew below."
+        }
+        if let window = subscriptionService.freeWindow, window.isWithinWindow {
+            return "\(window.daysRemaining) days left in your free window"
+        }
+        if let window = subscriptionService.freeWindow, !window.isWithinWindow {
+            return "Your free window has ended. Subscribe to keep using Lisn."
+        }
+        return nil
+    }
+
+    // MARK: - Status banner (current plan badge OR cancellation warning)
+
+    @ViewBuilder
+    private var statusBanner: some View {
+        if subscriptionService.isCancelledButActive {
+            HStack(spacing: LisnSpacing.sm) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.white)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(currentTier.displayName) plan cancelled")
+                        .font(LisnFont.labelLarge())
+                        .foregroundStyle(.white)
+                    if let date = subscriptionService.cancellationExpiryDisplay {
+                        Text("Access until \(date)")
+                            .font(LisnFont.caption())
+                            .foregroundStyle(.white.opacity(0.8))
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(LisnSpacing.md)
+            .background(LisnColors.warning)
+            .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+
+        } else if subscriptionService.status == .graceperiod {
+            HStack(spacing: LisnSpacing.sm) {
+                Image(systemName: "creditcard.trianglebadge.exclamationmark")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.white)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Payment issue")
+                        .font(LisnFont.labelLarge())
+                        .foregroundStyle(.white)
+                    Text("Update your payment method in Settings to keep your plan.")
+                        .font(LisnFont.caption())
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+
+                Spacer()
+            }
+            .padding(LisnSpacing.md)
+            .background(Color.red.opacity(0.85))
+            .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+
+        } else if currentTier != .free {
+            HStack(spacing: LisnSpacing.sm) {
+                Image(systemName: isOnMax ? "crown.fill" : "star.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.white)
+
+                Text("Current Plan: \(currentTier.displayName)")
+                    .font(LisnFont.labelLarge())
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                Text("Active")
+                    .font(LisnFont.captionBold())
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, LisnSpacing.xs)
+                    .padding(.vertical, 3)
+                    .background(.white.opacity(0.2))
+                    .clipShape(Capsule())
+            }
+            .padding(LisnSpacing.md)
+            .background(
+                LinearGradient(
+                    colors: [LisnColors.accent, LisnColors.orbDark],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+        }
+    }
+
+    // MARK: - Feature list (adapts to selected tier)
 
     private var featureList: some View {
         VStack(alignment: .leading, spacing: LisnSpacing.sm) {
-            Text("What you unlock")
+            Text(isOnMax ? "Your plan includes" : "What you unlock")
                 .font(LisnFont.labelLarge())
                 .foregroundStyle(LisnColors.textSecondary)
                 .textCase(.uppercase)
                 .tracking(0.5)
 
-            let items = selectedTier == .max ? features + maxExtras : features
+            let items = (isOnMax || selectedTier == .max) ? maxFeatures : proFeatures
 
             ForEach(items, id: \.text) { feature in
                 HStack(spacing: LisnSpacing.sm) {
@@ -202,32 +302,58 @@ struct PaywallView: View {
         .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
     }
 
+    // MARK: - Tier toggle (hidden for Max subscribers)
+
     private var tierToggle: some View {
         HStack(spacing: 0) {
             ForEach(PaywallTier.allCases, id: \.self) { tier in
+                let isCurrentPlan = (tier == .pro && isOnPro)
+                let isDisabled = isCurrentPlan
+
                 Button {
+                    guard !isDisabled else { return }
                     withAnimation(.easeInOut(duration: 0.2)) {
                         selectedTier = tier
                     }
                 } label: {
-                    Text(tier.displayName)
-                        .font(LisnFont.labelLarge())
-                        .foregroundStyle(selectedTier == tier ? .white : LisnColors.textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, LisnSpacing.sm)
-                        .background {
-                            if selectedTier == tier {
-                                Capsule()
-                                    .fill(LisnColors.accent)
-                            }
+                    HStack(spacing: 4) {
+                        Text(tier.displayName)
+                            .font(LisnFont.labelLarge())
+
+                        if isCurrentPlan {
+                            Text("Current")
+                                .font(LisnFont.caption())
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(.white.opacity(0.25))
+                                .clipShape(Capsule())
                         }
+                    }
+                    .foregroundStyle(
+                        isDisabled ? LisnColors.textTertiary :
+                        (selectedTier == tier ? .white : LisnColors.textSecondary)
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, LisnSpacing.sm)
+                    .background {
+                        if selectedTier == tier && !isDisabled {
+                            Capsule()
+                                .fill(LisnColors.accent)
+                        } else if isDisabled {
+                            Capsule()
+                                .fill(LisnColors.bgSecondary.opacity(0.5))
+                        }
+                    }
                 }
+                .disabled(isDisabled)
             }
         }
         .padding(LisnSpacing.xxxs)
         .background(LisnColors.bgSecondary)
         .clipShape(Capsule())
     }
+
+    // MARK: - Billing selector (hidden for Max subscribers)
 
     private var billingSelector: some View {
         VStack(spacing: LisnSpacing.sm) {
@@ -282,6 +408,8 @@ struct PaywallView: View {
         }
     }
 
+    // MARK: - Purchase button (hidden for Max subscribers)
+
     private var purchaseButton: some View {
         VStack(spacing: LisnSpacing.xs) {
             Button {
@@ -301,10 +429,10 @@ struct PaywallView: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, LisnSpacing.md)
-                .background(LisnColors.accent)
+                .background(canPurchaseSelected ? LisnColors.accent : LisnColors.textTertiary)
                 .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
             }
-            .disabled(isPurchasing || purchaseService.products.isEmpty)
+            .disabled(isPurchasing || purchaseService.products.isEmpty || !canPurchaseSelected)
 
             Text(subscribeFootnote)
                 .font(LisnFont.caption())
@@ -313,13 +441,18 @@ struct PaywallView: View {
         }
     }
 
-    /// CTA label adapts based on whether products have loaded yet.
     private var subscribeButtonLabel: String {
         if purchaseService.isLoadingProducts {
-            return "Loading…"
+            return "Loading..."
         }
         if purchaseService.products.isEmpty {
             return "Subscriptions launching soon"
+        }
+        if !canPurchaseSelected {
+            return "Current plan"
+        }
+        if isOnPro && selectedTier == .max {
+            return "Upgrade to Max"
         }
         return "Subscribe via App Store"
     }
@@ -328,18 +461,47 @@ struct PaywallView: View {
         if purchaseService.products.isEmpty {
             return "We're finishing the App Store handshake — check back in a moment."
         }
+        if isOnPro && selectedTier == .max {
+            return "Apple prorates the upgrade. You only pay the difference."
+        }
         return "Billing handled securely by Apple. Cancel anytime in Settings."
     }
 
+    // MARK: - Manage subscription link (for active subscribers)
+
+    @ViewBuilder
+    private var manageSubscriptionLink: some View {
+        if currentTier != .free {
+            Button {
+                if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                HStack(spacing: LisnSpacing.xs) {
+                    Image(systemName: "gear")
+                        .font(.system(size: 14))
+                    Text("Manage Subscription in Settings")
+                        .font(LisnFont.bodySmall())
+                }
+                .foregroundStyle(LisnColors.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, LisnSpacing.sm)
+                .background(LisnColors.bgElevated)
+                .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+            }
+        }
+    }
+
+    // MARK: - Actions
+
     private func handleSubscribe() async {
-        guard !purchaseService.products.isEmpty else { return }
+        guard !purchaseService.products.isEmpty, canPurchaseSelected else { return }
         isPurchasing = true
         defer { isPurchasing = false }
         do {
             try await purchaseService.purchase(productId: selectedProductId)
-            // Success path is driven by NotificationCenter.subscriptionPurchased
         } catch PurchaseService.PurchaseError.userCancelled {
-            // Silent — user dismissed the Apple sheet
+            // Silent
         } catch {
             errorMessage = error.localizedDescription
             showError = true
@@ -370,6 +532,8 @@ struct PaywallView: View {
         }
     }
 
+    // MARK: - Footer
+
     private var footerLinks: some View {
         HStack(spacing: LisnSpacing.lg) {
             Button {
@@ -396,55 +560,4 @@ struct PaywallView: View {
                 .foregroundStyle(LisnColors.textSecondary)
         }
     }
-
-    // MARK: - Actions (RevenueCat — commented out for now)
-
-    /*
-    // TODO: Uncomment when Apple IAP is ready
-    private func handlePurchase() async {
-        guard let offerings = subscriptionService.offerings else { return }
-
-        // Determine package identifier
-        let packageId: String
-        switch (selectedTier, selectedBilling) {
-        case (.pro, .monthly): packageId = "lisn_pro_monthly"
-        case (.pro, .yearly): packageId = "lisn_pro_annual"
-        case (.max, .monthly): packageId = "lisn_max_monthly"
-        case (.max, .yearly): packageId = "lisn_max_yearly"
-        }
-
-        // Find matching package from offerings
-        guard let offering = offerings.current,
-              let package = offering.availablePackages.first(where: { $0.storeProduct.productIdentifier == packageId }) else {
-            errorMessage = "Product not available. Please try again later."
-            showError = true
-            return
-        }
-
-        isPurchasing = true
-        do {
-            try await subscriptionService.purchase(package: package)
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
-            showError = true
-        }
-        isPurchasing = false
-    }
-
-    private func handleRestore() async {
-        isPurchasing = true
-        do {
-            try await subscriptionService.restorePurchases()
-            if subscriptionService.isPro {
-                dismiss()
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-            showError = true
-        }
-        isPurchasing = false
-    }
-    */
 }
-
