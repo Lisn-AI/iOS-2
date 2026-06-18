@@ -81,7 +81,7 @@
           ],
           "displayPrice" : "9.99",
           "familyShareable" : true,
-          "groupNumber" : 1,
+          "groupNumber" : 2,
           "internalID" : "PRO_MONTHLY_001",
           "introductoryOffer" : null,
           "localizations" : [
@@ -109,7 +109,7 @@
           ],
           "displayPrice" : "79.99",
           "familyShareable" : true,
-          "groupNumber" : 1,
+          "groupNumber" : 2,
           "internalID" : "PRO_ANNUAL_001",
           "introductoryOffer" : null,
           "localizations" : [
@@ -137,7 +137,7 @@
           ],
           "displayPrice" : "19.99",
           "familyShareable" : true,
-          "groupNumber" : 2,
+          "groupNumber" : 1,
           "internalID" : "MAX_MONTHLY_001",
           "introductoryOffer" : null,
           "localizations" : [
@@ -165,7 +165,7 @@
           ],
           "displayPrice" : "179.99",
           "familyShareable" : true,
-          "groupNumber" : 2,
+          "groupNumber" : 1,
           "internalID" : "MAX_ANNUAL_001",
           "introductoryOffer" : null,
           "localizations" : [
