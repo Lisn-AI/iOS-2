@@ -55,6 +55,20 @@ class SubscriptionService: NSObject, ObservableObject {
         limits?.cloudBackup ?? false
     }
 
+    /// True when user has cancelled but still has access until periodEnd.
+    var isCancelledButActive: Bool {
+        status == .cancelled && tier != .free
+    }
+
+    /// Formatted date when the subscription will expire after cancellation.
+    var cancellationExpiryDisplay: String? {
+        guard isCancelledButActive, let end = periodEnd else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter.string(from: end)
+    }
+
+    /// True when user can upgrade from their current tier (free or pro → show upgrade).
     var shouldShowUpgrade: Bool {
         tier == .free && status != .trial
     }

@@ -67,7 +67,37 @@ final class PurchaseService: ObservableObject {
                 await self?.handle(transactionResult: update, source: "Transaction.updates")
             }
         }
-        Task { await refreshEntitlements() }
+
+        // On launch: scan existing entitlements. If user reinstalled the app,
+        // currentEntitlements still has their active sub (Apple stores it
+        // server-side). We re-verify the latest transaction so the backend
+        // restores their tier even if the webhook didn't fire.
+        Task {
+            await refreshEntitlements()
+            if hasActiveEntitlement {
+                await reverifyLatestTransaction()
+            }
+        }
+    }
+
+    /// Re-send the latest active transaction to the backend. Handles the
+    /// reinstall case where the backend's subscription row may be stale or
+    /// missing. Safe to call repeatedly — upsert is idempotent.
+    private func reverifyLatestTransaction() async {
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result else { continue }
+            if let exp = transaction.expirationDate, exp < Date() { continue }
+            guard Self.productIds.contains(transaction.productID) else { continue }
+
+            do {
+                let jws = result.jwsRepresentation
+                try await APIService.shared.verifyAppStoreTransaction(jws: jws)
+                print("[PurchaseService] Re-verified entitlement on launch: \(transaction.productID)")
+            } catch {
+                print("[PurchaseService] Launch re-verify failed: \(error.localizedDescription)")
+            }
+            break // only need the best/latest one
+        }
     }
 
     // MARK: - Products

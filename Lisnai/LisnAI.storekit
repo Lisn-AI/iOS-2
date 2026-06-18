@@ -1,0 +1,194 @@
+{
+  "identifier" : "8A2E3B4C-1D5F-6A7B-8C9D-0E1F2A3B4C5D",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6781228287",
+    "_developerTeamID" : "2G9UD36Z9T",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "22164542",
+      "localizations" : [
+        {
+          "description" : "Premium subscription tiers for LisnAI",
+          "displayName" : "Lisn AI",
+          "locale" : "en_US"
+        }
+      ],
+      "name" : "LisnAI Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "9.99",
+          "familyShareable" : true,
+          "groupNumber" : 1,
+          "internalID" : "PRO_MONTHLY_001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "30 hrs recording, 200 chats, cloud backup",
+              "displayName" : "Lisn Pro Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.lisnai.app.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "LisnAI Pro Monthly",
+          "subscriptionGroupID" : "22164542",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "79.99",
+          "familyShareable" : true,
+          "groupNumber" : 1,
+          "internalID" : "PRO_ANNUAL_001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Pro features. Save 33% on yearly billing",
+              "displayName" : "Lisn Pro Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.lisnai.app.pro.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "LisnAI Pro Yearly",
+          "subscriptionGroupID" : "22164542",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "19.99",
+          "familyShareable" : true,
+          "groupNumber" : 2,
+          "internalID" : "MAX_MONTHLY_001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited AI, 50 hrs/mo, priority help",
+              "displayName" : "Lisn Max Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.lisnai.app.max.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "LisnAI Max Monthly",
+          "subscriptionGroupID" : "22164542",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "179.99",
+          "familyShareable" : true,
+          "groupNumber" : 2,
+          "internalID" : "MAX_ANNUAL_001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited Max. Save 25% on yearly billing",
+              "displayName" : "Lisn Max Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.lisnai.app.max.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "LisnAI Max Yearly",
+          "subscriptionGroupID" : "22164542",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
