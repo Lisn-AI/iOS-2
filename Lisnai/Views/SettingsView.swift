@@ -425,7 +425,7 @@ struct SettingsView: View {
                 }
                 .listRowBackground(LisnColors.bgElevated)
 
-                Link(destination: URL(string: "mailto:support@lisnai.com")!) {
+                Link(destination: URL(string: "mailto:team@lisnai.com")!) {
                     Label("Report an Issue", systemImage: "ladybug")
                 }
                 .listRowBackground(LisnColors.bgElevated)

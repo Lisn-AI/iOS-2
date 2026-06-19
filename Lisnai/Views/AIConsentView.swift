@@ -55,7 +55,7 @@ struct AIConsentView: View {
                     consentSection(
                         icon: "lock.shield",
                         title: "Your data stays yours",
-                        body: "All data is encrypted in transit (TLS) and at rest. You can delete your account and all associated data at any time by contacting support@lisnai.com. We never sell your data or share it with advertisers."
+                        body: "All data is encrypted in transit (TLS) and at rest. You can delete your account and all associated data at any time by contacting team@lisnai.com. We never sell your data or share it with advertisers."
                     )
 
                     consentSection(
