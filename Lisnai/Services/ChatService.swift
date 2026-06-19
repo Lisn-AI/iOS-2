@@ -65,9 +65,11 @@ class ChatService: ObservableObject {
         error = nil
         lastSources = []
 
-        // Timeout: if stuck in thinking state for 45s with no stream data, show error
+        // Timeout: if stuck in thinking state with no stream data, show error.
+        // Action queries (with 20 tools) can take 30-50s for Gemini to process;
+        // regular queries (4 tools) take 8-15s. 90s covers both with margin.
         let timeoutTask = Task { @MainActor in
-            try await Task.sleep(nanoseconds: 45_000_000_000) // 45 seconds
+            try await Task.sleep(nanoseconds: 90_000_000_000) // 90 seconds
             if self.isLoading && !self.isStreaming {
                 self.error = "Response timed out. Please try again."
                 self.isLoading = false
