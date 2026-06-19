@@ -80,23 +80,37 @@ final class PurchaseService: ObservableObject {
         }
     }
 
-    /// Re-send the latest active transaction to the backend. Handles the
-    /// reinstall case where the backend's subscription row may be stale or
-    /// missing. Safe to call repeatedly — upsert is idempotent.
+    /// Re-send the HIGHEST active transaction to the backend. Scans ALL
+    /// entitlements and picks the best tier (max > pro), then verifies that one.
+    /// Handles reinstall, upgrade-not-synced, and stale-backend-tier cases.
     private func reverifyLatestTransaction() async {
+        let tierRank: [String: Int] = ["pro": 1, "max": 2]
+        var bestResult: VerificationResult<Transaction>?
+        var bestTransaction: Transaction?
+        var bestRank = 0
+
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
             if let exp = transaction.expirationDate, exp < Date() { continue }
             guard Self.productIds.contains(transaction.productID) else { continue }
 
-            do {
-                let jws = result.jwsRepresentation
-                try await APIService.shared.verifyAppStoreTransaction(jws: jws)
-                print("[PurchaseService] Re-verified entitlement on launch: \(transaction.productID)")
-            } catch {
-                print("[PurchaseService] Launch re-verify failed: \(error.localizedDescription)")
+            let tier = Self.productTierMap[transaction.productID] ?? "free"
+            let rank = tierRank[tier] ?? 0
+            if rank > bestRank {
+                bestRank = rank
+                bestResult = result
+                bestTransaction = transaction
             }
-            break // only need the best/latest one
+        }
+
+        guard let result = bestResult, let transaction = bestTransaction else { return }
+
+        do {
+            let jws = result.jwsRepresentation
+            try await APIService.shared.verifyAppStoreTransaction(jws: jws)
+            print("[PurchaseService] Re-verified highest entitlement: \(transaction.productID) (tier rank \(bestRank))")
+        } catch {
+            print("[PurchaseService] Re-verify failed: \(error.localizedDescription)")
         }
     }
 
