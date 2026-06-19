@@ -32,25 +32,52 @@ struct SettingsView: View {
     var body: some View {
         List {
             // Upgrade Card (for non-max users)
-            if !subscriptionService.isMax {
-                Section {
-                    Button(action: {
-                        AnalyticsService.shared.track(.paywallShown, properties: [
-                            "placement": "settings_upgrade_card",
-                            "current_tier": subscriptionService.tier.rawValue
-                        ])
-                        showPaywall = true
-                    }) {
-                        HStack(spacing: LisnSpacing.sm) {
-                            Image(systemName: "crown.fill")
-                                .font(.system(size: 24))
-                                .foregroundStyle(.white)
+            Section {
+                Button(action: {
+                    AnalyticsService.shared.track(.paywallShown, properties: [
+                        "placement": "settings_upgrade_card",
+                        "current_tier": subscriptionService.tier.rawValue
+                    ])
+                    showPaywall = true
+                }) {
+                    HStack(spacing: LisnSpacing.sm) {
+                        Image(systemName: subscriptionService.isMax ? "crown.fill" : "crown.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.white)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(subscriptionService.isPro ? "Go Max" : "Upgrade to Pro")
+                        VStack(alignment: .leading, spacing: 2) {
+                            if subscriptionService.isMax {
+                                Text("Lisn Max")
                                     .font(LisnFont.titleSmall())
                                     .foregroundStyle(.white)
-
+                                if subscriptionService.isCancelledButActive,
+                                   let date = subscriptionService.cancellationExpiryDisplay {
+                                    Text("Expires \(date)")
+                                        .font(LisnFont.caption())
+                                        .foregroundStyle(.white.opacity(0.8))
+                                } else {
+                                    Text("Manage subscription")
+                                        .font(LisnFont.caption())
+                                        .foregroundStyle(.white.opacity(0.8))
+                                }
+                            } else if subscriptionService.isPro {
+                                Text("Lisn Pro")
+                                    .font(LisnFont.titleSmall())
+                                    .foregroundStyle(.white)
+                                if subscriptionService.isCancelledButActive,
+                                   let date = subscriptionService.cancellationExpiryDisplay {
+                                    Text("Expires \(date) · Upgrade?")
+                                        .font(LisnFont.caption())
+                                        .foregroundStyle(.white.opacity(0.8))
+                                } else {
+                                    Text("Go Max or manage plan")
+                                        .font(LisnFont.caption())
+                                        .foregroundStyle(.white.opacity(0.8))
+                                }
+                            } else {
+                                Text("Upgrade to Pro")
+                                    .font(LisnFont.titleSmall())
+                                    .foregroundStyle(.white)
                                 if subscriptionService.isTrialActive {
                                     Text("\(subscriptionService.trialDaysRemaining) days left in trial")
                                         .font(LisnFont.caption())
@@ -61,23 +88,25 @@ struct SettingsView: View {
                                         .foregroundStyle(.white.opacity(0.8))
                                 }
                             }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .foregroundStyle(.white.opacity(0.7))
                         }
-                        .padding(.vertical, LisnSpacing.xs)
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.white.opacity(0.7))
                     }
-                    .listRowBackground(
-                        LinearGradient(
-                            colors: [LisnColors.accent, LisnColors.orbDark],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
-                    )
+                    .padding(.vertical, LisnSpacing.xs)
                 }
+                .listRowBackground(
+                    LinearGradient(
+                        colors: subscriptionService.isCancelledButActive
+                            ? [LisnColors.warning, LisnColors.warning.opacity(0.7)]
+                            : [LisnColors.accent, LisnColors.orbDark],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: LisnRadius.md, style: .continuous))
+                )
             }
 
             // Quick Access Section

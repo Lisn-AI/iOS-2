@@ -351,22 +351,36 @@ struct MainTabView: View {
                 .padding(.horizontal, LisnSpacing.lg)
 
             VStack(alignment: .leading, spacing: 0) {
-                // Upgrade button (for non-max users)
-                if !subscriptionService.isMax {
-                    Button {
-                        closeThen { showPaywall = true }
-                    } label: {
-                        HStack(spacing: LisnSpacing.sm) {
-                            Image(systemName: "crown.fill")
-                                .font(.system(size: 16))
+                // Subscription button — always visible, adapts label to tier
+                Button {
+                    closeThen { showPaywall = true }
+                } label: {
+                    HStack(spacing: LisnSpacing.sm) {
+                        Image(systemName: subscriptionService.isMax ? "crown.fill" : "crown")
+                            .font(.system(size: 16))
+                            .foregroundStyle(LisnColors.accent)
+
+                        if subscriptionService.isMax {
+                            Text("Lisn Max")
+                                .font(LisnFont.labelLarge())
                                 .foregroundStyle(LisnColors.accent)
-                            Text(subscriptionService.isPro ? "Go Max" : "Upgrade to Pro")
+                            if subscriptionService.isCancelledButActive {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(LisnColors.warning)
+                            }
+                        } else if subscriptionService.isPro {
+                            Text("Lisn Pro · Go Max")
+                                .font(LisnFont.labelLarge())
+                                .foregroundStyle(LisnColors.accent)
+                        } else {
+                            Text("Upgrade to Pro")
                                 .font(LisnFont.labelLarge())
                                 .foregroundStyle(LisnColors.accent)
                         }
-                        .padding(.horizontal, LisnSpacing.lg)
-                        .padding(.vertical, LisnSpacing.sm)
                     }
+                    .padding(.horizontal, LisnSpacing.lg)
+                    .padding(.vertical, LisnSpacing.sm)
                 }
 
                 sideMenuItem(icon: "gear", title: "Settings") {
