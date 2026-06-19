@@ -573,14 +573,14 @@ struct PaywallView: View {
             Text("|")
                 .foregroundStyle(LisnColors.borderSubtle)
 
-            Link("Terms", destination: URL(string: "https://lisnai.com/terms")!)
+            Link("Terms", destination: URL(string: "https://lisnai-website.onrender.com/terms")!)
                 .font(LisnFont.caption())
                 .foregroundStyle(LisnColors.textSecondary)
 
             Text("|")
                 .foregroundStyle(LisnColors.borderSubtle)
 
-            Link("Privacy", destination: URL(string: "https://lisnai.com/privacy")!)
+            Link("Privacy", destination: URL(string: "https://lisnai-website.onrender.com/privacy")!)
                 .font(LisnFont.caption())
                 .foregroundStyle(LisnColors.textSecondary)
         }

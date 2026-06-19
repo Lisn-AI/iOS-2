@@ -9,6 +9,7 @@ struct ContentView: View {
     @EnvironmentObject var subscriptionService: SubscriptionService
     @State private var breathe = false
     @State private var showPaywall = false
+    @State private var showAIConsent = false
     @AppStorage("hasSeenPostOnboardingPaywall") private var hasSeenPostOnboardingPaywall = false
 
     var body: some View {
@@ -22,8 +23,14 @@ struct ContentView: View {
                         // Start suggestion monitoring when user is logged in
                         SuggestionMonitor.shared.startMonitoring()
 
-                        // Show post-onboarding paywall once
-                        if !hasSeenPostOnboardingPaywall {
+                        // AI consent gate — show immediately if not yet consented.
+                        // The user cannot use any feature until they agree.
+                        if !AIConsentManager.hasConsented {
+                            showAIConsent = true
+                        }
+
+                        // Show post-onboarding paywall once (after consent)
+                        if !hasSeenPostOnboardingPaywall && AIConsentManager.hasConsented {
                             hasSeenPostOnboardingPaywall = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                 showPaywall = true
@@ -53,6 +60,19 @@ struct ContentView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallView()
                 .environmentObject(subscriptionService)
+        }
+        .fullScreenCover(isPresented: $showAIConsent) {
+            AIConsentView {
+                showAIConsent = false
+                // Now show paywall if it hasn't been shown
+                if !hasSeenPostOnboardingPaywall {
+                    hasSeenPostOnboardingPaywall = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        showPaywall = true
+                    }
+                }
+            }
+            .interactiveDismissDisabled()
         }
     }
 

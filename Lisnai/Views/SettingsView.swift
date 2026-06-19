@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var showPermissionRules = false
     @State private var showGateways = false
     @State private var showDeleteConfirmation = false
+    @State private var showAIConsentReview = false
     @State private var isDeleting = false
     @State private var showCloudEnableConfirmation = false
     @State private var showCloudDisableConfirmation = false
@@ -395,17 +396,36 @@ struct SettingsView: View {
                 }
                 .listRowBackground(LisnColors.bgElevated)
 
-                Link(destination: URL(string: "https://lisnai.com/privacy")!) {
+                Link(destination: URL(string: "https://lisnai-website.onrender.com/privacy")!) {
                     Label("Privacy Policy", systemImage: "hand.raised")
                 }
                 .listRowBackground(LisnColors.bgElevated)
 
-                Link(destination: URL(string: "https://lisnai.com/terms")!) {
+                Link(destination: URL(string: "https://lisnai-website.onrender.com/terms")!) {
                     Label("Terms of Service", systemImage: "doc.text")
                 }
                 .listRowBackground(LisnColors.bgElevated)
 
-                Link(destination: URL(string: "https://github.com/lisnai/ios/issues")!) {
+                // AI data consent — shows current status + lets user review the consent
+                Button {
+                    showAIConsentReview = true
+                } label: {
+                    HStack {
+                        Label("AI Data Processing", systemImage: "brain.head.profile")
+                        Spacer()
+                        Text(AIConsentManager.hasConsented ? "Consented" : "Required")
+                            .font(LisnFont.caption())
+                            .foregroundStyle(AIConsentManager.hasConsented ? LisnColors.success : LisnColors.warning)
+                    }
+                }
+                .listRowBackground(LisnColors.bgElevated)
+
+                Link(destination: URL(string: "https://lisnai-website.onrender.com/support")!) {
+                    Label("Support", systemImage: "questionmark.circle")
+                }
+                .listRowBackground(LisnColors.bgElevated)
+
+                Link(destination: URL(string: "mailto:support@lisnai.com")!) {
                     Label("Report an Issue", systemImage: "ladybug")
                 }
                 .listRowBackground(LisnColors.bgElevated)
@@ -460,6 +480,11 @@ struct SettingsView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallView()
                 .environmentObject(subscriptionService)
+        }
+        .sheet(isPresented: $showAIConsentReview) {
+            AIConsentView {
+                // Already consented or just consented — dismiss is enough
+            }
         }
         .confirmationDialog(
             "Delete All Data?",
