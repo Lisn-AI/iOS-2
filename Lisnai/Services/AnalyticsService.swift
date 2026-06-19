@@ -121,5 +121,9 @@ extension AnalyticsService {
         case purchaseFailed = "purchase_failed"
         case trialStarted = "trial_started"
         case limitHit = "limit_hit"
+
+        // Consent
+        case aiConsentGranted = "ai_consent_granted"
+        case aiConsentShown = "ai_consent_shown"
     }
 }

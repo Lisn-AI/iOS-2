@@ -706,6 +706,15 @@ class RecordingManager: NSObject, ObservableObject {
     }
 
     private func checkPermissionAndStart() async {
+        // Step 0 — AI consent check (Guideline 5.1.2)
+        // Must get explicit user consent before sending voice data to AI.
+        // This fires once ever — after consent is granted, never shown again.
+        guard AIConsentManager.hasConsented else {
+            AnalyticsService.shared.track(.aiConsentShown)
+            NotificationCenter.default.post(name: .showAIConsent, object: nil)
+            return
+        }
+
         // Step 1 — Backend pre-check (free-tier window + daily budget + overage state)
         do {
             let permission = try await APIService.shared.getRecordingPermission()

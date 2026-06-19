@@ -222,6 +222,7 @@ extension Notification.Name {
     static let recordingEnteredOverage = Notification.Name("recordingEnteredOverage")
     static let recordingHardStopped = Notification.Name("recordingHardStopped")
     static let subscriptionPurchased = Notification.Name("subscriptionPurchased")
+    static let showAIConsent = Notification.Name("showAIConsent")
 }
 
 @main

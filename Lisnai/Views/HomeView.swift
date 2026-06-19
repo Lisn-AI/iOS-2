@@ -11,6 +11,7 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Binding var showSettings: Bool
     @State private var showPaywall = false
+    @State private var showAIConsent = false
     @State private var isRecording = false
     @State private var showPermissionAlert = false
     @State private var showMemorySearch = false
@@ -140,6 +141,15 @@ struct HomeView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallView()
                 .environmentObject(subscriptionService)
+        }
+        .sheet(isPresented: $showAIConsent) {
+            AIConsentView {
+                recordingManager.startRecording()
+            }
+            .interactiveDismissDisabled()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showAIConsent)) { _ in
+            showAIConsent = true
         }
         .onAppear {
             locationManager.requestPermissions()
