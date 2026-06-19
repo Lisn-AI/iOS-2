@@ -166,11 +166,12 @@ class APIService: ObservableObject {
             sessionId: sessionId
         )
 
-        let request = try await createRequest(
+        var request = try await createRequest(
             endpoint: "/api/transcripts/process",
             method: "POST",
             body: try encoder.encode(body)
         )
+        request.timeoutInterval = 180
 
         return try await execute(request)
     }
@@ -178,13 +179,17 @@ class APIService: ObservableObject {
     // MARK: - Chunk Processing (multi-chunk recordings)
 
     /// Process a single chunk of a multi-chunk recording
-    /// Handles single-chunk (backward compatible), multi-chunk, and finalization
+    /// Handles single-chunk (backward compatible), multi-chunk, and finalization.
+    /// Uses a longer timeout (180s) because the backend pipeline runs entity
+    /// extraction, summarization, intent classification, and optionally chat —
+    /// which can take 60-90s on cold starts or complex recordings.
     func processChunk(_ request: ProcessChunkRequest) async throws -> ChunkProcessResult {
-        let apiRequest = try await createRequest(
+        var apiRequest = try await createRequest(
             endpoint: "/api/transcripts/chunk",
             method: "POST",
             body: try encoder.encode(request)
         )
+        apiRequest.timeoutInterval = 180
         return try await execute(apiRequest)
     }
 
