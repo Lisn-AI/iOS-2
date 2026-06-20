@@ -715,38 +715,34 @@ struct HomeView: View {
 
     // MARK: - Processing View
 
+    // Original processing view (kept for fallback)
+    // private var processingViewOriginal: some View {
+    //     HStack(spacing: LisnSpacing.md) {
+    //         ZStack {
+    //             Circle()
+    //                 .fill(LisnColors.accent.opacity(0.1))
+    //                 .frame(width: 40, height: 40)
+    //             ProgressView()
+    //                 .tint(LisnColors.accent)
+    //         }
+    //         VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
+    //             Text("Processing")
+    //                 .font(LisnFont.labelLarge())
+    //                 .foregroundColor(LisnColors.textPrimary)
+    //             Text("Transcribing and summarizing...")
+    //                 .font(LisnFont.caption())
+    //                 .foregroundColor(LisnColors.textSecondary)
+    //         }
+    //         Spacer()
+    //     }
+    //     .padding(LisnSpacing.md)
+    //     .background(LisnColors.bgElevated)
+    //     .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
+    //     .shadow(color: LisnShadow.md.color, radius: LisnShadow.md.radius, x: LisnShadow.md.x, y: LisnShadow.md.y)
+    // }
+
     private var processingView: some View {
-        HStack(spacing: LisnSpacing.md) {
-            ZStack {
-                Circle()
-                    .fill(LisnColors.accent.opacity(0.1))
-                    .frame(width: 40, height: 40)
-
-                ProgressView()
-                    .tint(LisnColors.accent)
-            }
-
-            VStack(alignment: .leading, spacing: LisnSpacing.xxxs) {
-                Text("Processing")
-                    .font(LisnFont.labelLarge())
-                    .foregroundColor(LisnColors.textPrimary)
-
-                Text("Transcribing and summarizing...")
-                    .font(LisnFont.caption())
-                    .foregroundColor(LisnColors.textSecondary)
-            }
-
-            Spacer()
-        }
-        .padding(LisnSpacing.md)
-        .background(LisnColors.bgElevated)
-        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
-        .shadow(
-            color: LisnShadow.md.color,
-            radius: LisnShadow.md.radius,
-            x: LisnShadow.md.x,
-            y: LisnShadow.md.y
-        )
+        ProcessingAnimationCard()
     }
 
     // MARK: - Summary Card
