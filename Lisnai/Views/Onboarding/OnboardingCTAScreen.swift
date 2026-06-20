@@ -56,7 +56,7 @@ struct OnboardingCTAScreen: View {
                             .font(.system(size: 16))
                             .foregroundColor(LisnColors.accent)
 
-                        Text("Lisn Found \(result.summaryText) in Just One Conversation.")
+                        Text("Lisn AI Found \(result.summaryText) in Just One Conversation.")
                             .font(.custom("Inter-Regular", size: 14))
                             .foregroundColor(LisnColors.textSecondary)
                             .lineSpacing(2)

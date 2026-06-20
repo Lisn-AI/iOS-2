@@ -84,7 +84,7 @@ struct OnboardingDemoScreen: View {
                 .font(.custom("Inter-Bold", size: 32))
                 .foregroundColor(LisnColors.textPrimary)
 
-            Text("Read This Aloud and Watch Lisn Work")
+            Text("Read This Aloud and Watch Lisn AI Work")
                 .font(.custom("Inter-Medium", size: 15))
                 .foregroundColor(LisnColors.textSecondary)
 

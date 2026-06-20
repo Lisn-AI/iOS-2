@@ -25,7 +25,7 @@ struct LoginView: View {
                 }
 
                 // Title
-                Text("Lisnai")
+                Text("Lisn AI")
                     .font(LisnFont.displayLarge())
 
                 // Subtitle

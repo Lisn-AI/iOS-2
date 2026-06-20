@@ -33,12 +33,12 @@ struct OnboardingSurveyScreen: View {
             // Question content — one at a time
             TabView(selection: $currentQuestion) {
                 questionView(
-                    title: "How did you find Lisn?",
+                    title: "How did you find Lisn AI?",
                     content: { question1Content }
                 ).tag(0)
 
                 questionView(
-                    title: "What do you want\nLisn to remember?",
+                    title: "What do you want\nLisn AI to remember?",
                     content: { question2Content }
                 ).tag(1)
 
