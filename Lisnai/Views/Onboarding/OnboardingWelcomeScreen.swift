@@ -23,11 +23,11 @@ struct OnboardingWelcomeScreen: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // Lottie animation (centered, above text)
+                // Lottie animation (centered, bigger and attention-grabbing)
                 if showLottie {
-                    LottieView(animation: .named("microphone"))
+                    LottieView(animation: .named("rocket"))
                         .playing(loopMode: .loop)
-                        .frame(width: 140, height: 140)
+                        .frame(width: 200, height: 200)
                         .transition(.scale.combined(with: .opacity))
                         .padding(.bottom, LisnSpacing.xl)
                 }

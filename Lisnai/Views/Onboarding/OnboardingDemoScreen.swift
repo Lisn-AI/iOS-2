@@ -214,23 +214,23 @@ struct OnboardingDemoScreen: View {
 
     private var resultsView: some View {
         VStack(spacing: 0) {
-            // Results card (celebration shimmer wraps it — replaces Vortex confetti)
+            // Results card — fills the screen width, bigger text, no thin border
             VStack(alignment: .leading, spacing: 0) {
-                // Header
+                // Header — bigger, bolder
                 HStack {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
-                        .font(.system(size: 18))
-                        .shadow(color: .green.opacity(0.3), radius: 4)
+                        .font(.system(size: 24))
+                        .shadow(color: .green.opacity(0.4), radius: 6)
 
                     Text("Analysis Complete")
-                        .font(.custom("Inter-SemiBold", size: 16))
+                        .font(.custom("Inter-Bold", size: 20))
                         .foregroundColor(LisnColors.textPrimary)
 
                     Spacer()
 
                     Text(activeResult.summaryText)
-                        .font(.custom("Inter-Medium", size: 12))
+                        .font(.custom("Inter-SemiBold", size: 14))
                         .foregroundStyle(
                             LinearGradient(
                                 colors: [LisnColors.orbLight, LisnColors.accent],
@@ -239,53 +239,54 @@ struct OnboardingDemoScreen: View {
                             )
                         )
                 }
-                .padding(.bottom, 16)
+                .padding(.bottom, 20)
 
-                // Source text
+                // Source text — larger, more readable
                 Text("\"\(activeResult.paragraph)\"")
-                    .font(.custom("Inter-Regular", size: 13))
-                    .foregroundColor(LisnColors.textTertiary)
-                    .lineSpacing(3)
+                    .font(.custom("Inter-Regular", size: 15))
+                    .foregroundColor(LisnColors.textSecondary)
+                    .lineSpacing(4)
                     .italic()
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 20)
                     .opacity(showResults ? 1 : 0)
 
-                // Insights
+                // Insights — larger text, more spacing
                 if !activeResult.insights.isEmpty {
                     Text("INSIGHTS")
-                        .font(.custom("Inter-SemiBold", size: 11))
-                        .foregroundColor(LisnColors.textTertiary)
+                        .font(.custom("Inter-Bold", size: 12))
+                        .foregroundColor(LisnColors.accent)
                         .tracking(2)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, 10)
 
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 10) {
                         ForEach(Array(activeResult.insights.enumerated()), id: \.offset) { idx, insight in
-                            HStack(alignment: .top, spacing: 8) {
+                            HStack(alignment: .top, spacing: 10) {
                                 Circle()
                                     .fill(insight.isCritical ? Color.orange : LisnColors.accent)
-                                    .frame(width: 6, height: 6)
+                                    .frame(width: 8, height: 8)
                                     .padding(.top, 5)
 
                                 Text(insight.text)
-                                    .font(.custom("Inter-Regular", size: 13))
+                                    .font(.custom("Inter-Medium", size: 15))
                                     .foregroundColor(LisnColors.textPrimary)
+                                    .lineSpacing(2)
                             }
                             .opacity(idx < showInsights.count && showInsights[idx] ? 1 : 0)
                             .offset(x: idx < showInsights.count && showInsights[idx] ? 0 : -10)
                         }
                     }
-                    .padding(.bottom, 14)
+                    .padding(.bottom, 18)
                 }
 
-                // Actions
+                // Actions — bigger buttons
                 if !executableActions.isEmpty {
                     Text("ACTIONS")
-                        .font(.custom("Inter-SemiBold", size: 11))
-                        .foregroundColor(LisnColors.textTertiary)
+                        .font(.custom("Inter-Bold", size: 12))
+                        .foregroundColor(LisnColors.accent)
                         .tracking(2)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, 10)
 
-                    VStack(spacing: 10) {
+                    VStack(spacing: 12) {
                         ForEach(Array(executableActions.enumerated()), id: \.element.id) { idx, action in
                             actionRow(action: action, index: idx)
                                 .opacity(idx < showActions.count && showActions[idx] ? 1 : 0)
@@ -294,34 +295,30 @@ struct OnboardingDemoScreen: View {
                     }
                 }
             }
-            .padding(22)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(cardBorder, lineWidth: 1)
-            )
+            .padding(28)
+            .background(LisnColors.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .shadow(
-                color: colorScheme == .dark ? .clear : .black.opacity(0.06),
-                radius: 16,
-                y: 6
+                color: LisnColors.accent.opacity(0.08),
+                radius: 20,
+                y: 8
             )
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 16)
             .opacity(showResults ? 1 : 0)
             .offset(y: showResults ? 0 : 40)
-            .lisnCelebration(isActive: $celebrate, showCheckmark: false, cornerRadius: 20)
+            .lisnCelebration(isActive: $celebrate, showCheckmark: false, cornerRadius: 24)
 
             if showScrollHint {
                 Text("SCROLL TO CONTINUE")
                     .font(.custom("Inter-Medium", size: 11))
                     .foregroundColor(LisnColors.textTertiary)
                     .tracking(2)
-                    .padding(.top, 24)
+                    .padding(.top, 20)
                     .padding(.bottom, 48)
                     .transition(.opacity)
             }
         }
-        .padding(.top, 40)
+        .padding(.top, 24)
         .transition(.opacity)
     }
 
