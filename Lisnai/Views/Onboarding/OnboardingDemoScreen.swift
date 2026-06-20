@@ -306,7 +306,8 @@ struct OnboardingDemoScreen: View {
             .padding(.horizontal, 16)
             .opacity(showResults ? 1 : 0)
             .offset(y: showResults ? 0 : 40)
-            .lisnCelebration(isActive: $celebrate, showCheckmark: false, cornerRadius: 24)
+            // Celebration shimmer removed — the persistent border was visually
+            // distracting. The checkmark + haptic on "Analysis Complete" is enough.
 
             if showScrollHint {
                 Text("SCROLL TO CONTINUE")

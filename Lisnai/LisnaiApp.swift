@@ -32,8 +32,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             ])
         }
 
-        // Set up push notifications with enhanced service
-        setupPushNotifications(application)
+        // Defer push notification setup until after onboarding completes.
+        // Requesting permission during onboarding obscures the welcome animation
+        // and confuses new users. Permission is requested when user first signs in.
+        let hasOnboarded = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
+        if hasOnboarded {
+            setupPushNotifications(application)
+        }
 
         // Configure global UIKit appearance for theming
         configureAppearance()
@@ -314,8 +319,10 @@ struct LisnaiApp: App {
         .modelContainer(sharedModelContainer)
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
-                // Refresh APNs token to ensure backend always has a valid token
-                UIApplication.shared.registerForRemoteNotifications()
+                // Only register for notifications after onboarding is done
+                if hasCompletedOnboarding {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
 
                 // Process any NSE-queued payloads that arrived while backgrounded
                 NotificationService.shared.processPendingExtensionPayloads()
