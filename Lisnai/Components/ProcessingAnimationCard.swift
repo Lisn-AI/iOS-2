@@ -23,15 +23,13 @@ struct ProcessingAnimationCard: View {
     ]
 
     var body: some View {
-        VStack(spacing: LisnSpacing.md) {
-            // Big standalone Lottie — 3x larger, pushed up
+        VStack(spacing: LisnSpacing.xs) {
             LottieView(animation: .named(lottieNames[lottieIndex]))
                 .playing(loopMode: .loop)
-                .frame(width: 280, height: 280)
+                .frame(width: 320, height: 320)
                 .scaleEffect(pulseScale)
                 .id(lottieIndex)
 
-            // Status text
             VStack(spacing: LisnSpacing.xs) {
                 Text("Processing")
                     .font(.custom("Inter-Bold", size: 22))
@@ -44,7 +42,7 @@ struct ProcessingAnimationCard: View {
                     .transition(.opacity)
             }
         }
-        .padding(.top, LisnSpacing.md)
+        .padding(.bottom, 100)
         .frame(maxWidth: .infinity)
         .opacity(appeared ? 1 : 0)
         .onAppear {
