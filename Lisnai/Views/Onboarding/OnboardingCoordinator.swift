@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Main onboarding flow — 6 screens via scroll storytelling.
+/// Main onboarding flow — 5 screens via scroll storytelling + setup overlay.
 /// Clean opacity transitions (no blur/scale) per onboarding redesign plan.
 struct OnboardingCoordinator: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -21,46 +21,54 @@ struct OnboardingCoordinator: View {
                 .ignoresSafeArea()
                 .opacity(0.6)
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    OnboardingWelcomeScreen()
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        OnboardingWelcomeScreen()
+                            .frame(height: screenHeight)
+                            .id("welcome")
+                            .scrollTransition { content, phase in
+                                content.opacity(phase.isIdentity ? 1 : 0.3)
+                            }
+
+                        OnboardingValueScreen()
+                            .frame(height: screenHeight)
+                            .id("value")
+                            .scrollTransition { content, phase in
+                                content.opacity(phase.isIdentity ? 1 : 0.3)
+                            }
+
+                        OnboardingSurveyScreen(survey: $survey) {
+                            // Survey done — scroll to demo screen
+                            withAnimation(.easeInOut(duration: 0.5)) {
+                                proxy.scrollTo("demo", anchor: .top)
+                            }
+                        }
+                        .containerRelativeFrame(.vertical)
+                        .id("survey")
+                        .scrollTransition { content, phase in
+                            content.opacity(phase.isIdentity ? 1 : 0.3)
+                        }
+
+                        OnboardingDemoScreen(domain: selectedDomain, result: $demoResult)
+                            .frame(minHeight: screenHeight)
+                            .id("demo")
+                            .scrollTransition { content, phase in
+                                content.opacity(phase.isIdentity ? 1 : 0.3)
+                            }
+
+                        OnboardingCTAScreen(demoResult: demoResult) {
+                            showSetupScreen = true
+                        }
                         .frame(height: screenHeight)
+                        .id("cta")
                         .scrollTransition { content, phase in
                             content.opacity(phase.isIdentity ? 1 : 0.3)
                         }
-
-                    OnboardingValueScreen()
-                        .frame(height: screenHeight)
-                        .scrollTransition { content, phase in
-                            content.opacity(phase.isIdentity ? 1 : 0.3)
-                        }
-
-                    OnboardingSurveyScreen(survey: $survey) {
-                        // Survey data is cached in UserDefaults by the survey screen.
-                        // It gets submitted to backend + Mixpanel after sign-in
-                        // (in ContentView or AuthService).
-                    }
-                    .containerRelativeFrame(.vertical)
-                    .scrollTransition { content, phase in
-                        content.opacity(phase.isIdentity ? 1 : 0.3)
-                    }
-
-                    OnboardingDemoScreen(domain: selectedDomain, result: $demoResult)
-                        .frame(minHeight: screenHeight)
-                        .scrollTransition { content, phase in
-                            content.opacity(phase.isIdentity ? 1 : 0.3)
-                        }
-
-                    OnboardingCTAScreen(demoResult: demoResult) {
-                        showSetupScreen = true
-                    }
-                    .frame(height: screenHeight)
-                    .scrollTransition { content, phase in
-                        content.opacity(phase.isIdentity ? 1 : 0.3)
                     }
                 }
+                .scrollTargetBehavior(.paging)
             }
-            .scrollTargetBehavior(.paging)
         }
         .ignoresSafeArea()
         .fullScreenCover(isPresented: $showSetupScreen) {
@@ -81,39 +89,6 @@ struct OnboardingCoordinator: View {
         withAnimation(.easeOut(duration: 0.4)) {
             hasCompletedOnboarding = true
         }
-    }
-
-    private func submitSurvey() {
-        guard survey.isComplete else { return }
-        let payload = survey.backendPayload()
-
-        Task {
-            do {
-                try await APIService.shared.submitSurvey(payload)
-                print("[Survey] Submitted to backend")
-            } catch {
-                print("[Survey] Backend submit failed (non-fatal): \(error.localizedDescription)")
-            }
-        }
-
-        if let source = survey.acquisitionSource?.rawValue {
-            AnalyticsService.shared.setUserProperty("acquisition_source", value: source)
-        }
-        AnalyticsService.shared.setUserProperty(
-            "use_case_intents",
-            value: survey.useCaseIntents.map { $0.rawValue }
-        )
-        if !survey.priorTools.isEmpty {
-            AnalyticsService.shared.setUserProperty(
-                "prior_tool",
-                value: survey.priorTools.map { $0.rawValue }
-            )
-        }
-        AnalyticsService.shared.track(.surveySubmitted, properties: [
-            "acquisition_source": survey.acquisitionSource?.rawValue ?? "skipped",
-            "use_case_count": survey.useCaseIntents.count,
-            "prior_tool_count": survey.priorTools.count,
-        ])
     }
 }
 

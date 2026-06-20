@@ -162,10 +162,15 @@ struct OnboardingSurveyScreen: View {
 
             chipsWrap
 
-            // Done button
+            // Done button — caches survey + scrolls to next page
             Button {
                 LisnHaptics.success()
                 cacheSurveyLocally()
+                AnalyticsService.shared.track(.surveySubmitted, properties: [
+                    "acquisition_source": survey.acquisitionSource?.rawValue ?? "skipped",
+                    "use_case_count": survey.useCaseIntents.count,
+                    "prior_tool_count": survey.priorTools.count,
+                ])
                 onContinue()
             } label: {
                 Text("Done →")
