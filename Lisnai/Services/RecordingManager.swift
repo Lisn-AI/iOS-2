@@ -1150,6 +1150,9 @@ class RecordingManager: NSObject, ObservableObject {
 
             // Phase 2: SAVE FIRST — create Recording with transcript immediately
             var savedRecording: Recording?
+            if modelContext == nil {
+                print("[SingleChunk] ERROR: modelContext is nil — cannot save to SwiftData. Recording data lost!")
+            }
             if let context = modelContext {
                 let recording = Recording(date: date, duration: totalDuration, title: nil)
                 let transcriptionModel = Transcription(date: date, text: labeledTranscript, recording: recording)
