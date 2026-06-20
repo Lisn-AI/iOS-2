@@ -1,12 +1,13 @@
 import SwiftUI
 import Lottie
 
-/// Animated processing card shown while a recording is being processed.
-/// Cycles through 3 Lottie animations with staggered status text.
+/// Full-screen processing animation shown while a recording is being processed.
+/// Big standalone Lottie animation with cycling status text — no card, no box.
 struct ProcessingAnimationCard: View {
     @State private var statusIndex = 0
     @State private var lottieIndex = 0
     @State private var appeared = false
+    @State private var pulseScale: CGFloat = 1.0
 
     private let statuses = [
         "Transcribing your voice...",
@@ -22,48 +23,44 @@ struct ProcessingAnimationCard: View {
     ]
 
     var body: some View {
-        VStack(spacing: LisnSpacing.md) {
-            // Lottie animation — cycles every 6 seconds
+        VStack(spacing: LisnSpacing.xl) {
+            Spacer()
+
+            // Big standalone Lottie animation — no card, no box
             LottieView(animation: .named(lottieNames[lottieIndex]))
                 .playing(loopMode: .loop)
-                .frame(width: 80, height: 80)
+                .frame(width: 200, height: 200)
+                .scaleEffect(pulseScale)
                 .id(lottieIndex)
-                .transition(.opacity)
 
-            // Status text — changes every 4 seconds
-            VStack(spacing: LisnSpacing.xxxs) {
+            // Status text — large, centered
+            VStack(spacing: LisnSpacing.xs) {
                 Text("Processing")
-                    .font(LisnFont.labelLarge())
+                    .font(.custom("Inter-Bold", size: 22))
                     .foregroundColor(LisnColors.textPrimary)
 
                 Text(statuses[statusIndex])
-                    .font(LisnFont.caption())
+                    .font(.custom("Inter-Regular", size: 16))
                     .foregroundColor(LisnColors.textSecondary)
-                    .transition(.opacity)
                     .id(statusIndex)
-                    .animation(.easeInOut(duration: 0.3), value: statusIndex)
+                    .transition(.opacity)
             }
+
+            Spacer()
+            Spacer()
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, LisnSpacing.lg)
-        .padding(.horizontal, LisnSpacing.md)
-        .background(LisnColors.bgElevated)
-        .clipShape(RoundedRectangle(cornerRadius: LisnRadius.lg, style: .continuous))
-        .shadow(
-            color: LisnShadow.md.color,
-            radius: LisnShadow.md.radius,
-            x: LisnShadow.md.x,
-            y: LisnShadow.md.y
-        )
         .opacity(appeared ? 1 : 0)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.3)) { appeared = true }
+            withAnimation(.easeOut(duration: 0.4)) { appeared = true }
+            withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
+                pulseScale = 1.05
+            }
             startCycling()
         }
     }
 
     private func startCycling() {
-        // Cycle status text every 4 seconds
         Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { _ in
             Task { @MainActor in
                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -72,7 +69,6 @@ struct ProcessingAnimationCard: View {
             }
         }
 
-        // Cycle Lottie animation every 6 seconds
         Timer.scheduledTimer(withTimeInterval: 6.0, repeats: true) { _ in
             Task { @MainActor in
                 withAnimation(.easeInOut(duration: 0.4)) {
@@ -85,6 +81,5 @@ struct ProcessingAnimationCard: View {
 
 #Preview {
     ProcessingAnimationCard()
-        .padding()
         .background(LisnColors.bgPrimary)
 }
