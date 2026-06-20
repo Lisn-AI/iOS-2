@@ -48,7 +48,7 @@ struct SettingsView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             if subscriptionService.isMax {
-                                Text("Lisn Max")
+                                Text("Lisn AI Max")
                                     .font(LisnFont.titleSmall())
                                     .foregroundStyle(.white)
                                 if subscriptionService.isCancelledButActive,
@@ -62,7 +62,7 @@ struct SettingsView: View {
                                         .foregroundStyle(.white.opacity(0.8))
                                 }
                             } else if subscriptionService.isPro {
-                                Text("Lisn Pro")
+                                Text("Lisn AI Pro")
                                     .font(LisnFont.titleSmall())
                                     .foregroundStyle(.white)
                                 if subscriptionService.isCancelledButActive,

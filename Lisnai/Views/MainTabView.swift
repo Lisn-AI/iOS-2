@@ -361,7 +361,7 @@ struct MainTabView: View {
                             .foregroundStyle(LisnColors.accent)
 
                         if subscriptionService.isMax {
-                            Text("Lisn Max")
+                            Text("Lisn AI Max")
                                 .font(LisnFont.labelLarge())
                                 .foregroundStyle(LisnColors.accent)
                             if subscriptionService.isCancelledButActive {
@@ -370,7 +370,7 @@ struct MainTabView: View {
                                     .foregroundStyle(LisnColors.warning)
                             }
                         } else if subscriptionService.isPro {
-                            Text("Lisn Pro · Go Max")
+                            Text("Lisn AI Pro · Go Max")
                                 .font(LisnFont.labelLarge())
                                 .foregroundStyle(LisnColors.accent)
                         } else {

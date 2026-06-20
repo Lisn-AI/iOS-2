@@ -188,7 +188,7 @@ struct PaywallView: View {
 
     private var headerTitle: String {
         if isOnMax {
-            return "You're on\nLisn Max"
+            return "You're on\nLisn AI Max"
         }
         if isOnPro {
             return "You're on Pro.\nGo further?"
@@ -209,7 +209,7 @@ struct PaywallView: View {
             return "\(window.daysRemaining) days left in your free window"
         }
         if let window = subscriptionService.freeWindow, !window.isWithinWindow {
-            return "Your free window has ended. Subscribe to keep using Lisn."
+            return "Your free window has ended. Subscribe to keep using Lisn AI."
         }
         return nil
     }

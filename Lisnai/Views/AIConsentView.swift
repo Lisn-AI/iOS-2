@@ -26,7 +26,7 @@ struct AIConsentView: View {
                             .foregroundStyle(LisnColors.accent)
                             .padding(.top, LisnSpacing.xl)
 
-                        Text("How Lisn Uses AI")
+                        Text("How Lisn AI Uses Your Data")
                             .font(LisnFont.displayMedium())
                             .foregroundStyle(LisnColors.textPrimary)
                             .multilineTextAlignment(.center)
