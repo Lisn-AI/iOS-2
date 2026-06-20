@@ -277,15 +277,9 @@ struct HomeView: View {
                                 InsightCard(insight: latestInsight)
                             }
                         } else if recordingManager.backgroundProcessingCount > 0 {
-                            // Background sessions processing but nothing in SwiftData yet
-                            VStack(spacing: LisnSpacing.sm) {
-                                ProgressView()
-                                Text("Processing your recording...")
-                                    .font(LisnFont.bodyMedium())
-                                    .foregroundColor(LisnColors.textSecondary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, LisnSpacing.xxl)
+                            // Background sessions processing — show animated card
+                            ProcessingAnimationCard()
+                                .padding(.vertical, LisnSpacing.md)
                         }
                     }
                     .padding(.horizontal, LisnSpacing.sm) // 12pt — near-edge with breathing room
