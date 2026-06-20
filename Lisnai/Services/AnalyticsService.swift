@@ -125,5 +125,12 @@ extension AnalyticsService {
         // Consent
         case aiConsentGranted = "ai_consent_granted"
         case aiConsentShown = "ai_consent_shown"
+
+        // Onboarding granular
+        case onboardingPageViewed = "onboarding_page_viewed"
+        case onboardingPageDwellTime = "onboarding_page_dwell_time"
+        case onboardingDemoRecorded = "onboarding_demo_recorded"
+        case onboardingDemoSkipped = "onboarding_demo_skipped"
+        case onboardingSetupShown = "onboarding_setup_shown"
     }
 }

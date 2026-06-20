@@ -414,6 +414,9 @@ struct OnboardingDemoScreen: View {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             if recorder.permissionDenied {
+                AnalyticsService.shared.track(.onboardingDemoSkipped, properties: [
+                    "reason": "mic_permission_denied"
+                ])
                 skipToResults()
             } else {
                 withAnimation(.easeInOut(duration: 0.4)) {
@@ -426,10 +429,29 @@ struct OnboardingDemoScreen: View {
     private func stopRecording() {
         LisnHaptics.medium()
         recorder.stopRecording()
+
+        // Cache what the user said during onboarding demo
+        let transcript = recorder.liveTranscript
+        if !transcript.isEmpty {
+            UserDefaults.standard.set(transcript, forKey: "onboardingDemoTranscript")
+            AnalyticsService.shared.track(.onboardingDemoRecorded, properties: [
+                "transcript_length": transcript.count,
+                "word_count": transcript.split(separator: " ").count,
+            ])
+        } else {
+            AnalyticsService.shared.track(.onboardingDemoRecorded, properties: [
+                "transcript_length": 0,
+                "word_count": 0,
+            ])
+        }
+
         beginProcessing()
     }
 
     private func skipToResults() {
+        AnalyticsService.shared.track(.onboardingDemoSkipped, properties: [
+            "reason": "skipped_by_user"
+        ])
         withAnimation(.easeInOut(duration: 0.4)) { phase = .processing }
         animateProcessing()
     }

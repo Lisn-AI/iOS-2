@@ -122,6 +122,7 @@ struct OnboardingSetupScreen: View {
 
     private func startSequence() {
         glowPulse = true
+        AnalyticsService.shared.track(.onboardingSetupShown)
 
         withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
             showTitle = true
