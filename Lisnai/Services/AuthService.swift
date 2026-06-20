@@ -53,6 +53,8 @@ class AuthService: NSObject, ObservableObject {
                     // Link RevenueCat to Firebase UID
                     await SubscriptionService.shared.loginUser(firebaseUID: user.uid)
                     await SubscriptionService.shared.syncUsageFromBackend()
+                    // Submit cached onboarding survey (if exists)
+                    Self.submitPendingSurvey()
                 } else {
                     print("Auth state changed: signed out")
                     AnalyticsService.shared.reset()
@@ -65,6 +67,55 @@ class AuthService: NSObject, ObservableObject {
     func checkAuthState() {
         user = Auth.auth().currentUser
         isAuthReady = true
+    }
+
+    // MARK: - Pending Survey Submission
+
+    /// Reads cached onboarding survey from UserDefaults and submits to backend + Mixpanel.
+    /// Called once after first sign-in. Clears the cache after successful submit.
+    static func submitPendingSurvey() {
+        guard UserDefaults.standard.bool(forKey: "pendingSurvey_exists") else { return }
+
+        let source = UserDefaults.standard.string(forKey: "pendingSurvey_acquisitionSource")
+        let intents = UserDefaults.standard.stringArray(forKey: "pendingSurvey_useCaseIntents") ?? []
+        let tools = UserDefaults.standard.stringArray(forKey: "pendingSurvey_priorTools") ?? []
+
+        let payload: [String: Any] = [
+            "acquisition_source": source ?? "skipped",
+            "use_case_intents": intents,
+            "prior_tool": tools,
+            "completed_at": ISO8601DateFormatter().string(from: Date()),
+            "onboarding_version": "v2",
+        ]
+
+        // Backend
+        Task {
+            do {
+                try await APIService.shared.submitSurvey(payload)
+                print("[Survey] Pending survey submitted to backend after sign-in")
+            } catch {
+                print("[Survey] Pending survey backend submit failed: \(error.localizedDescription)")
+            }
+        }
+
+        // Mixpanel user properties
+        if let source {
+            AnalyticsService.shared.setUserProperty("acquisition_source", value: source)
+        }
+        if !intents.isEmpty {
+            AnalyticsService.shared.setUserProperty("use_case_intents", value: intents)
+        }
+        if !tools.isEmpty {
+            AnalyticsService.shared.setUserProperty("prior_tool", value: tools)
+        }
+
+        // Clear cache so we don't submit again
+        UserDefaults.standard.removeObject(forKey: "pendingSurvey_exists")
+        UserDefaults.standard.removeObject(forKey: "pendingSurvey_acquisitionSource")
+        UserDefaults.standard.removeObject(forKey: "pendingSurvey_useCaseIntents")
+        UserDefaults.standard.removeObject(forKey: "pendingSurvey_priorTools")
+
+        print("[Survey] Pending survey cache cleared")
     }
 
     // MARK: - Google Sign In
