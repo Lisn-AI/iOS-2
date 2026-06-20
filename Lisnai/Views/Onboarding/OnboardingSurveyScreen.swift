@@ -1,104 +1,115 @@
 import SwiftUI
 
-/// Screen 3: Growth-focused onboarding survey.
-/// Three questions — see DESIGN.md Part 5 + Part 6b.
+/// Screen 3: One-question-per-screen survey (Cal AI style).
+/// Swipes horizontally between Q1/Q2/Q3 with auto-advance on selection.
+/// Survey data is cached in UserDefaults — submitted after sign-in.
 struct OnboardingSurveyScreen: View {
     @Binding var survey: SurveyResponse
     var onContinue: () -> Void
 
-    @State private var showQ1 = false
-    @State private var showQ2 = false
-    @State private var showQ3 = false
-    @State private var showContinue = false
+    @State private var currentQuestion = 0
+    @State private var appeared = false
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: LisnSpacing.xxl) {
-                heroHeader
-
-                question1
-                    .opacity(showQ1 ? 1 : 0)
-                    .offset(y: showQ1 ? 0 : 16)
-
-                question2
-                    .opacity(showQ2 ? 1 : 0)
-                    .offset(y: showQ2 ? 0 : 16)
-
-                question3
-                    .opacity(showQ3 ? 1 : 0)
-                    .offset(y: showQ3 ? 0 : 16)
-
-                continueButton
-                    .opacity(showContinue && survey.isComplete ? 1 : 0)
-                    .padding(.bottom, LisnSpacing.xxl)
+        VStack(spacing: 0) {
+            // Progress dots
+            HStack(spacing: 8) {
+                ForEach(0..<3, id: \.self) { idx in
+                    Circle()
+                        .fill(idx <= currentQuestion ? LisnColors.accent : LisnColors.textTertiary.opacity(0.3))
+                        .frame(width: idx == currentQuestion ? 10 : 6, height: idx == currentQuestion ? 10 : 6)
+                        .animation(.spring(response: 0.3), value: currentQuestion)
+                }
             }
-            .padding(.horizontal, LisnSpacing.lg)
             .padding(.top, LisnSpacing.xxxl)
+            .padding(.bottom, LisnSpacing.lg)
+
+            // Question number
+            Text("\(currentQuestion + 1) of 3")
+                .font(LisnFont.caption())
+                .foregroundColor(LisnColors.textTertiary)
+                .padding(.bottom, LisnSpacing.xxl)
+
+            // Question content — one at a time
+            TabView(selection: $currentQuestion) {
+                questionView(
+                    title: "How did you find Lisn?",
+                    content: { question1Content }
+                ).tag(0)
+
+                questionView(
+                    title: "What do you want\nLisn to remember?",
+                    content: { question2Content }
+                ).tag(1)
+
+                questionView(
+                    title: "What were you\nusing before?",
+                    content: { question3Content }
+                ).tag(2)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: currentQuestion)
+
+            Spacer()
         }
+        .opacity(appeared ? 1 : 0)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5).delay(0.2)) { showQ1 = true }
-            withAnimation(.easeOut(duration: 0.5).delay(0.5)) { showQ2 = true }
-            withAnimation(.easeOut(duration: 0.5).delay(0.8)) { showQ3 = true }
-            withAnimation(.easeOut(duration: 0.5).delay(1.0)) { showContinue = true }
+            withAnimation(.easeOut(duration: 0.4)) { appeared = true }
         }
     }
 
-    // MARK: - Header
+    // MARK: - Question Container
 
-    private var heroHeader: some View {
-        VStack(alignment: .leading, spacing: LisnSpacing.xs) {
-            Text("Help us tailor Lisn")
-                .font(.custom("Inter-Bold", size: 32))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [LisnColors.orbLight, LisnColors.accent, LisnColors.orbDark],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .lineLimit(2)
+    private func questionView<Content: View>(
+        title: String,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: LisnSpacing.xl) {
+                Text(title)
+                    .font(.custom("Inter-Bold", size: 28))
+                    .foregroundColor(LisnColors.textPrimary)
+                    .lineSpacing(4)
+                    .padding(.horizontal, LisnSpacing.lg)
 
-            Text("Three quick questions. We use this to make Lisn better for you.")
-                .font(LisnFont.bodyMedium())
-                .foregroundColor(LisnColors.textSecondary)
+                content()
+                    .padding(.horizontal, LisnSpacing.lg)
+            }
+            .padding(.top, LisnSpacing.md)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Q1: Acquisition
+    // MARK: - Q1: Acquisition (single select → auto-advance)
 
-    private var question1: some View {
-        VStack(alignment: .leading, spacing: LisnSpacing.md) {
-            sectionLabel("01")
-            Text("How did you find Lisn?")
-                .font(LisnFont.titleLarge())
-                .foregroundColor(LisnColors.textPrimary)
-
-            VStack(spacing: LisnSpacing.xs) {
-                ForEach(AcquisitionSource.allCases) { source in
-                    OptionRow(
-                        title: source.title,
-                        icon: source.icon,
-                        isSelected: survey.acquisitionSource == source
-                    ) {
-                        LisnHaptics.medium()
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                            survey.acquisitionSource = source
-                        }
+    private var question1Content: some View {
+        VStack(spacing: LisnSpacing.xs) {
+            ForEach(AcquisitionSource.allCases) { source in
+                OptionRow(
+                    title: source.title,
+                    icon: source.icon,
+                    isSelected: survey.acquisitionSource == source
+                ) {
+                    LisnHaptics.medium()
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                        survey.acquisitionSource = source
+                    }
+                    // Auto-advance after selection
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        withAnimation { currentQuestion = 1 }
                     }
                 }
             }
         }
     }
 
-    // MARK: - Q2: Use case (multi-select)
+    // MARK: - Q2: Use case (multi-select → manual advance via button)
 
-    private var question2: some View {
-        VStack(alignment: .leading, spacing: LisnSpacing.md) {
-            sectionLabel("02 · Choose any")
-            Text("What do you want Lisn to remember?")
-                .font(LisnFont.titleLarge())
-                .foregroundColor(LisnColors.textPrimary)
+    private var question2Content: some View {
+        VStack(spacing: LisnSpacing.sm) {
+            Text("Choose any that apply")
+                .font(LisnFont.caption())
+                .foregroundColor(LisnColors.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: LisnSpacing.xs) {
                 ForEach(UseCaseIntent.allCases) { intent in
@@ -119,25 +130,64 @@ struct OnboardingSurveyScreen: View {
                     }
                 }
             }
+
+            // Next button (only for multi-select)
+            if !survey.useCaseIntents.isEmpty {
+                Button {
+                    LisnHaptics.medium()
+                    withAnimation { currentQuestion = 2 }
+                } label: {
+                    Text("Next →")
+                        .font(LisnFont.labelLarge())
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(LisnColors.accent)
+                        .clipShape(Capsule())
+                }
+                .padding(.top, LisnSpacing.md)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
     }
 
-    // MARK: - Q3: Prior tool (multi-select, optional)
+    // MARK: - Q3: Prior tool (multi-select, optional → Done button)
 
-    private var question3: some View {
-        VStack(alignment: .leading, spacing: LisnSpacing.md) {
-            sectionLabel("03 · Optional")
-            Text("What were you using before?")
-                .font(LisnFont.titleLarge())
-                .foregroundColor(LisnColors.textPrimary)
+    private var question3Content: some View {
+        VStack(spacing: LisnSpacing.sm) {
+            Text("Optional — helps us improve")
+                .font(LisnFont.caption())
+                .foregroundColor(LisnColors.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Wrap in chips
             chipsWrap
+
+            // Done button
+            Button {
+                LisnHaptics.success()
+                cacheSurveyLocally()
+                onContinue()
+            } label: {
+                Text("Done →")
+                    .font(LisnFont.labelLarge())
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        LinearGradient(
+                            colors: [LisnColors.orbLight, LisnColors.accent],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .clipShape(Capsule())
+                    .shadow(color: LisnColors.accent.opacity(0.3), radius: 10, y: 4)
+            }
+            .padding(.top, LisnSpacing.lg)
         }
     }
 
     private var chipsWrap: some View {
-        // Simple wrapping HStack with manual width handling
         let rows = chunked(PriorTool.allCases, into: 2)
         return VStack(alignment: .leading, spacing: LisnSpacing.xs) {
             ForEach(0..<rows.count, id: \.self) { rowIdx in
@@ -163,44 +213,24 @@ struct OnboardingSurveyScreen: View {
         }
     }
 
-    // MARK: - Continue
+    // MARK: - Local cache (user isn't signed in yet)
 
-    private var continueButton: some View {
-        Button {
-            LisnHaptics.success()
-            onContinue()
-        } label: {
-            HStack {
-                Text("Continue")
-                    .font(LisnFont.labelLarge())
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 14, weight: .semibold))
-            }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(
-                LinearGradient(
-                    colors: [LisnColors.orbLight, LisnColors.orbDark],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .clipShape(Capsule())
-            .shadow(color: LisnColors.accent.opacity(0.35), radius: 14, y: 6)
+    private func cacheSurveyLocally() {
+        if let source = survey.acquisitionSource?.rawValue {
+            UserDefaults.standard.set(source, forKey: "pendingSurvey_acquisitionSource")
         }
-        .buttonStyle(.plain)
-        .disabled(!survey.isComplete)
+        UserDefaults.standard.set(
+            survey.useCaseIntents.map { $0.rawValue },
+            forKey: "pendingSurvey_useCaseIntents"
+        )
+        UserDefaults.standard.set(
+            survey.priorTools.map { $0.rawValue },
+            forKey: "pendingSurvey_priorTools"
+        )
+        UserDefaults.standard.set(true, forKey: "pendingSurvey_exists")
     }
 
     // MARK: - Helpers
-
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(LisnFont.labelSmall())
-            .tracking(1.5)
-            .foregroundColor(LisnColors.textTertiary)
-    }
 
     private func chunked<T>(_ array: [T], into size: Int) -> [[T]] {
         stride(from: 0, to: array.count, by: size).map {
@@ -294,7 +324,7 @@ private struct ChipOption: View {
     struct Preview: View {
         @State private var survey = SurveyResponse()
         var body: some View {
-            OnboardingSurveyScreen(survey: $survey) { print("Continue") }
+            OnboardingSurveyScreen(survey: $survey) { print("Done") }
                 .background(LisnColors.bgPrimary)
         }
     }

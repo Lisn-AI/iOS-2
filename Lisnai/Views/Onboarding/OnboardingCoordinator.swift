@@ -36,7 +36,9 @@ struct OnboardingCoordinator: View {
                         }
 
                     OnboardingSurveyScreen(survey: $survey) {
-                        submitSurvey()
+                        // Survey data is cached in UserDefaults by the survey screen.
+                        // It gets submitted to backend + Mixpanel after sign-in
+                        // (in ContentView or AuthService).
                     }
                     .containerRelativeFrame(.vertical)
                     .scrollTransition { content, phase in
