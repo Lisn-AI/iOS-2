@@ -37,8 +37,6 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>17.0</string>
 	<key>MixpanelToken</key>
 	<string>1d2ce818788cab22eae0273d26b83d49</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>

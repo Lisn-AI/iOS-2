@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Screen 5: Call to action with gradient buttons and ambient glow
+/// Screen 5: Final CTA — "Get Started" button (no sign-in, that's in LoginView).
 struct OnboardingCTAScreen: View {
     @Environment(\.colorScheme) private var colorScheme
     let demoResult: DemoResult?
@@ -8,12 +8,11 @@ struct OnboardingCTAScreen: View {
 
     @State private var showHero = false
     @State private var showSummary = false
-    @State private var showButtons = false
+    @State private var showButton = false
     @State private var glowPulse = false
 
     var body: some View {
         ZStack {
-            // Ambient glow
             RadialGradient(
                 colors: [
                     LisnColors.accent.opacity(glowPulse ? 0.12 : 0.06),
@@ -56,7 +55,6 @@ struct OnboardingCTAScreen: View {
                         Image(systemName: "sparkles")
                             .font(.system(size: 16))
                             .foregroundColor(LisnColors.accent)
-                            .shadow(color: LisnColors.accent.opacity(0.3), radius: 4)
 
                         Text("Lisn Found \(result.summaryText) in Just One Conversation.")
                             .font(.custom("Inter-Regular", size: 14))
@@ -67,15 +65,6 @@ struct OnboardingCTAScreen: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.ultraThinMaterial)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(LisnColors.accent.opacity(0.2), lineWidth: 1)
-                    )
-                    .shadow(
-                        color: colorScheme == .dark ? .clear : .black.opacity(0.04),
-                        radius: 8,
-                        y: 4
-                    )
                     .padding(.horizontal, 28)
                     .padding(.top, 24)
                     .opacity(showSummary ? 1 : 0)
@@ -91,75 +80,31 @@ struct OnboardingCTAScreen: View {
 
                 Spacer()
 
-                // Auth buttons
+                // Single CTA button — no sign-in (LoginView handles that)
                 VStack(spacing: 12) {
-                    // Google
                     Button {
                         LisnHaptics.medium()
                         onComplete()
                     } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "globe")
-                                .font(.system(size: 18))
-
-                            Text("Continue with Google")
-                                .font(.custom("Inter-SemiBold", size: 16))
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(
-                            LinearGradient(
-                                colors: [LisnColors.orbLight, LisnColors.accent],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .shadow(color: LisnColors.accent.opacity(0.3), radius: 12, y: 4)
-                    }
-
-                    // Apple
-                    Button {
-                        LisnHaptics.medium()
-                        onComplete()
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "apple.logo")
-                                .font(.system(size: 18))
-
-                            Text("Continue with Apple")
-                                .font(.custom("Inter-SemiBold", size: 16))
-                        }
-                        .foregroundColor(LisnColors.textPrimary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(
-                                    colorScheme == .dark
-                                        ? Color.white.opacity(0.1)
-                                        : Color.black.opacity(0.08),
-                                    lineWidth: 1
+                        Text("Get Started")
+                            .font(.custom("Inter-SemiBold", size: 17))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .background(
+                                LinearGradient(
+                                    colors: [LisnColors.orbLight, LisnColors.accent],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
                                 )
-                        )
-                    }
-
-                    // Skip
-                    Button {
-                        onComplete()
-                    } label: {
-                        Text("I'll Explore First")
-                            .font(.custom("Inter-Medium", size: 14))
-                            .foregroundColor(LisnColors.textTertiary)
-                            .padding(.top, 4)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .shadow(color: LisnColors.accent.opacity(0.3), radius: 12, y: 4)
                     }
                 }
                 .padding(.horizontal, 28)
-                .opacity(showButtons ? 1 : 0)
-                .offset(y: showButtons ? 0 : 15)
+                .opacity(showButton ? 1 : 0)
+                .offset(y: showButton ? 0 : 15)
 
                 Spacer()
                     .frame(height: 48)
@@ -174,7 +119,7 @@ struct OnboardingCTAScreen: View {
                 showSummary = true
             }
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(1.0)) {
-                showButtons = true
+                showButton = true
             }
         }
     }

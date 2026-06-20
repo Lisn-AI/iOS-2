@@ -181,9 +181,6 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - com.lisnai.ambient-audio-check
 
-        # Minimum iOS version
-        LSMinimumSystemVersion: "17.0"
-
         # Mixpanel project token (public client token, safe to embed)
         MixpanelToken: "1d2ce818788cab22eae0273d26b83d49"
 

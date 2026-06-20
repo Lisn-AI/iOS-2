@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Main onboarding flow — 5 screens via scroll storytelling
+/// Main onboarding flow — 6 screens via scroll storytelling.
+/// Clean opacity transitions (no blur/scale) per onboarding redesign plan.
 struct OnboardingCoordinator: View {
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
@@ -8,84 +9,66 @@ struct OnboardingCoordinator: View {
     @State private var selectedDomain: UserDomain?
     @State private var demoResult: DemoResult?
     @State private var survey = SurveyResponse()
+    @State private var showSetupScreen = false
 
     private let screenHeight = UIScreen.main.bounds.height
 
     var body: some View {
         ZStack {
-            // Base background
             LisnColors.bgPrimary.ignoresSafeArea()
 
-            // Animated MeshGradient background (iOS 18+)
-            meshBackground
+            LisnAmbientBackground()
                 .ignoresSafeArea()
                 .opacity(0.6)
 
-            // Scroll content
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     OnboardingWelcomeScreen()
                         .frame(height: screenHeight)
                         .scrollTransition { content, phase in
-                            content
-                                .scaleEffect(phase.isIdentity ? 1.0 : 0.88)
-                                .opacity(phase.isIdentity ? 1.0 : 0.0)
-                                .blur(radius: phase.isIdentity ? 0 : 4)
+                            content.opacity(phase.isIdentity ? 1 : 0.3)
                         }
 
                     OnboardingValueScreen()
                         .frame(height: screenHeight)
                         .scrollTransition { content, phase in
-                            content
-                                .scaleEffect(phase.isIdentity ? 1.0 : 0.88)
-                                .opacity(phase.isIdentity ? 1.0 : 0.0)
-                                .blur(radius: phase.isIdentity ? 0 : 4)
+                            content.opacity(phase.isIdentity ? 1 : 0.3)
                         }
 
                     OnboardingSurveyScreen(survey: $survey) {
-                        // Continue tapped — submit survey + Mixpanel, then user can scroll past
                         submitSurvey()
                     }
-                    .frame(minHeight: screenHeight)
+                    .containerRelativeFrame(.vertical)
                     .scrollTransition { content, phase in
-                        content
-                            .scaleEffect(phase.isIdentity ? 1.0 : 0.88)
-                            .opacity(phase.isIdentity ? 1.0 : 0.0)
-                            .blur(radius: phase.isIdentity ? 0 : 4)
+                        content.opacity(phase.isIdentity ? 1 : 0.3)
                     }
 
                     OnboardingDemoScreen(domain: selectedDomain, result: $demoResult)
                         .frame(minHeight: screenHeight)
                         .scrollTransition { content, phase in
-                            content
-                                .opacity(phase.isIdentity ? 1.0 : 0.0)
-                                .blur(radius: phase.isIdentity ? 0 : 4)
+                            content.opacity(phase.isIdentity ? 1 : 0.3)
                         }
 
                     OnboardingCTAScreen(demoResult: demoResult) {
-                        completeOnboarding()
+                        showSetupScreen = true
                     }
                     .frame(height: screenHeight)
                     .scrollTransition { content, phase in
-                        content
-                            .scaleEffect(phase.isIdentity ? 1.0 : 0.88)
-                            .opacity(phase.isIdentity ? 1.0 : 0.0)
-                            .blur(radius: phase.isIdentity ? 0 : 4)
+                        content.opacity(phase.isIdentity ? 1 : 0.3)
                     }
                 }
             }
             .scrollTargetBehavior(.paging)
         }
         .ignoresSafeArea()
+        .fullScreenCover(isPresented: $showSetupScreen) {
+            OnboardingSetupScreen {
+                completeOnboarding()
+            }
+        }
         .onAppear {
             AnalyticsService.shared.track(.onboardingStarted)
         }
-    }
-
-    // MARK: - Background (single ambient bloom — see DESIGN.md Part 4)
-
-    private var meshBackground: some View {
-        LisnAmbientBackground()
     }
 
     private func completeOnboarding() {
@@ -98,14 +81,10 @@ struct OnboardingCoordinator: View {
         }
     }
 
-    /// Persist survey answers to backend + Mixpanel user properties.
-    /// Called when user taps Continue on survey screen.
-    /// Best-effort — if backend is down, we don't block onboarding flow.
     private func submitSurvey() {
         guard survey.isComplete else { return }
         let payload = survey.backendPayload()
 
-        // Backend
         Task {
             do {
                 try await APIService.shared.submitSurvey(payload)
@@ -115,7 +94,6 @@ struct OnboardingCoordinator: View {
             }
         }
 
-        // Mixpanel: user properties + event
         if let source = survey.acquisitionSource?.rawValue {
             AnalyticsService.shared.setUserProperty("acquisition_source", value: source)
         }
