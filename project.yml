@@ -198,15 +198,9 @@ targets:
         NSRemindersUsageDescription: "Lisnai creates reminders from your conversations so you don't forget important tasks."
         NSRemindersFullAccessUsageDescription: "Lisnai creates reminders from your conversations so you don't forget important tasks."
 
-        # Supported interface orientations
+        # Supported interface orientations — portrait only
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
-
-        UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
 
