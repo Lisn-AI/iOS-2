@@ -152,6 +152,7 @@ targets:
     info:
       path: Lisnai/Info.plist
       properties:
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
 
         # Privacy descriptions (required for App Store)
@@ -201,8 +202,6 @@ targets:
         # Supported interface orientations — portrait only
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
 
   # Live Activity Widget Extension
   RecordingActivityExtension:
