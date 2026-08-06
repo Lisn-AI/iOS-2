@@ -100,7 +100,7 @@ class APIService: ObservableObject {
                 print("[APIService] 401 - Auth rejected by backend")
                 throw APIError.notAuthenticated
             case 402:
-                // Free window expired — user is past the 10-day free trial
+                // Free window expired — user is past the 10-day free period
                 // and must subscribe to continue. Backend body looks like
                 // `{ error: "free_window_expired", freeWindowDaysRemaining: -1 }`.
                 if let limitResponse = try? decoder.decode(LimitExceededResponse.self, from: data) {
@@ -684,6 +684,16 @@ class APIService: ObservableObject {
             body: body
         )
         return try await execute(request)
+    }
+
+    // MARK: - Account Deletion
+
+    func deleteAccount() async throws {
+        let request = try await createRequest(
+            endpoint: "/api/account",
+            method: "DELETE"
+        )
+        let _: EmptyResponse = try await execute(request)
     }
 
     // MARK: - Embedding Proxy

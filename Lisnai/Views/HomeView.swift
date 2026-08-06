@@ -53,7 +53,7 @@ struct HomeView: View {
                     HStack(spacing: LisnSpacing.xs) {
                         Image(systemName: "clock")
                             .font(.system(size: 13))
-                        Text("\(subscriptionService.trialDaysRemaining) days left in your free trial")
+                        Text("\(subscriptionService.trialDaysRemaining) days left in your free period")
                             .font(LisnFont.captionBold())
                         Spacer()
                         Text("Upgrade")

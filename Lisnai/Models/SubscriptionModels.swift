@@ -37,7 +37,7 @@ struct SubscriptionStatusResponse: Codable {
     let trialEndsAt: String?
     let currentPeriodEnd: String?
     /// Backend free-window descriptor — present when user is on free tier.
-    /// `isWithinWindow: false` means the 10-day free trial has lapsed and
+    /// `isWithinWindow: false` means the 10-day free period has lapsed and
     /// all gated features should hard-block until the user subscribes.
     let freeWindow: FreeWindowStatus?
 }

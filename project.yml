@@ -11,7 +11,7 @@ settings:
   base:
     DEVELOPMENT_TEAM: "2G9UD36Z9T"
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: 4
+    CURRENT_PROJECT_VERSION: 8
     SWIFT_VERSION: "5.9"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
 
@@ -44,11 +44,6 @@ packages:
   RiveRuntime:
     url: https://github.com/rive-app/rive-ios.git
     from: 6.0.0
-
-  # RevenueCat for subscriptions
-  purchases-ios-spm:
-    url: https://github.com/RevenueCat/purchases-ios-spm.git
-    from: 5.0.0
 
   # Lottie animations for recording icons
   lottie-spm:
@@ -116,9 +111,6 @@ targets:
       - package: Vortex
       # Rive mascot animation
       - package: RiveRuntime
-      # RevenueCat subscriptions
-      - package: purchases-ios-spm
-        product: RevenueCat
       # Lottie animated icons
       - package: lottie-spm
         product: Lottie
@@ -147,6 +139,8 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.lisnai.app
+        com.apple.developer.applesignin:
+          - Default
 
     # Info.plist settings
     info:
@@ -156,10 +150,10 @@ targets:
         UILaunchScreen: {}
 
         # Privacy descriptions (required for App Store)
-        NSMicrophoneUsageDescription: "Lisnai records audio throughout your day to create a searchable memory of your life. Your recordings stay private on your device."
+        NSMicrophoneUsageDescription: "Lisn AI records audio to transcribe and analyze your conversations. Recordings are sent to our secure servers for AI-powered transcription and insights."
         NSLocationWhenInUseUsageDescription: "Lisnai uses your location to remind you to start recording when you leave home."
         NSLocationAlwaysAndWhenInUseUsageDescription: "Lisnai uses your location to automatically remind you to start recording when you leave your home zone."
-        NSSpeechRecognitionUsageDescription: "Lisnai transcribes your recordings on-device to make them searchable. Your data never leaves your device."
+        NSSpeechRecognitionUsageDescription: "Lisn AI uses on-device speech recognition for real-time transcription during recording. Full transcripts are also processed on our servers for deeper analysis."
 
         # Live Activities support (for Dynamic Island)
         NSSupportsLiveActivities: true
@@ -175,7 +169,6 @@ targets:
         UIBackgroundModes:
           - audio
           - fetch
-          - location
           - processing
           - remote-notification
 

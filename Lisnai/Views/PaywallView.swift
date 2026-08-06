@@ -466,7 +466,7 @@ struct PaywallView: View {
 
     private var subscribeButtonLabel: String {
         if purchaseService.isLoadingProducts { return "Loading..." }
-        if purchaseService.products.isEmpty { return "Subscriptions launching soon" }
+        if purchaseService.products.isEmpty { return "Unavailable — try again" }
 
         switch purchaseAction {
         case .alreadyOwned: return "Current plan"
@@ -481,14 +481,14 @@ struct PaywallView: View {
 
     private var subscribeFootnote: String {
         if purchaseService.products.isEmpty {
-            return "We're finishing the App Store handshake — check back in a moment."
+            return "Unable to load subscriptions. Please check your connection and try again."
         }
         switch purchaseAction {
         case .alreadyOwned: return "You're on this plan. Switch billing or upgrade above."
         case .blocked: return "To change to a lower tier, manage your subscription in Apple Settings."
         case .tierUpgrade: return "Apple prorates the upgrade. You only pay the difference."
         case .billingChange: return "Your new billing cycle starts at the next renewal."
-        case .newPurchase: return "Billing handled securely by Apple. Cancel anytime in Settings."
+        case .newPurchase: return "Subscription auto-renews. Payment charged to your Apple ID. Cancel anytime in Settings > Subscriptions at least 24 hours before the current period ends."
         }
     }
 

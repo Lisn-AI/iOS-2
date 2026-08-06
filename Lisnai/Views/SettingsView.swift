@@ -1,10 +1,12 @@
 import SwiftUI
+import SwiftData
 import FirebaseAuth
 
 /// Settings view for app configuration
 struct SettingsView: View {
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var subscriptionService: SubscriptionService
+    @Environment(\.modelContext) private var modelContext
     @StateObject private var notificationService = NotificationService.shared
     @StateObject private var ambientMonitor = AmbientAudioMonitor.shared
     @State private var showPaywall = false
@@ -80,7 +82,7 @@ struct SettingsView: View {
                                     .font(LisnFont.titleSmall())
                                     .foregroundStyle(.white)
                                 if subscriptionService.isTrialActive {
-                                    Text("\(subscriptionService.trialDaysRemaining) days left in trial")
+                                    Text("\(subscriptionService.trialDaysRemaining) days left in your free period")
                                         .font(LisnFont.caption())
                                         .foregroundStyle(.white.opacity(0.8))
                                 } else {
@@ -446,7 +448,7 @@ struct SettingsView: View {
                             Text("Deleting...")
                         }
                     } else {
-                        Label("Delete All Data", systemImage: "trash")
+                        Label("Delete Account & Data", systemImage: "trash")
                             .foregroundColor(LisnColors.error)
                     }
                 }
@@ -456,7 +458,7 @@ struct SettingsView: View {
                 Text("Danger Zone")
                     .lisnSectionHeader()
             } footer: {
-                Text("This will permanently delete all your recordings, transcriptions, and summaries from this device and the cloud.")
+                Text("This will permanently delete your account and all data including recordings, transcriptions, and summaries from this device and our servers.")
             }
         }
         .scrollContentBackground(.hidden)
@@ -487,13 +489,13 @@ struct SettingsView: View {
             }
         }
         .confirmationDialog(
-            "Delete All Data?",
+            "Delete Account & All Data?",
             isPresented: $showDeleteConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Delete Everything", role: .destructive) {
+            Button("Delete Account", role: .destructive) {
                 Task {
-                    await deleteAllData()
+                    await deleteAccountAndData()
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -544,10 +546,57 @@ struct SettingsView: View {
         return "\(hour):00"
     }
 
-    private func deleteAllData() async {
+    private func deleteAccountAndData() async {
         isDeleting = true
-        // TODO: Implement delete all data from backend and local storage
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        do {
+            try await APIService.shared.deleteAccount()
+
+            // Wipe all local SwiftData models
+            try modelContext.delete(model: Recording.self)
+            try modelContext.delete(model: Transcription.self)
+            try modelContext.delete(model: Summary.self)
+            try modelContext.delete(model: ChatMessage.self)
+            try modelContext.delete(model: Insight.self)
+            try modelContext.delete(model: LocalMemory.self)
+            try modelContext.delete(model: LocalContact.self)
+            try modelContext.delete(model: LocalCommitment.self)
+            try modelContext.delete(model: LocalSuggestion.self)
+            try modelContext.delete(model: LocalBriefing.self)
+            try modelContext.save()
+
+            // Reset all UserDefaults / AppStorage state
+            let defaults = UserDefaults.standard
+            for key in [
+                "hasCompletedOnboarding",
+                "hasSeenPostOnboardingPaywall",
+                "cloudBackupEnabled",
+                "notificationsEnabled",
+                "dailyBriefingEnabled",
+                "suggestionsEnabled",
+                "commitmentRemindersEnabled",
+                "quietHoursEnabled",
+                "quietHoursStart",
+                "quietHoursEnd",
+                "maxNotificationsPerDay",
+                "ai_data_consent_granted",
+                "ai_data_consent_date",
+                "onboardingDemoTranscript",
+                "pendingSurvey_exists",
+                "pendingSurvey_acquisitionSource",
+                "selectedUserDomain",
+                "ambientDetectionEnabled",
+                "ambientLastNotification",
+                "ambientPromptIndex",
+                "notifiedSuggestionIds",
+                "isCurrentlyRecording",
+            ] {
+                defaults.removeObject(forKey: key)
+            }
+
+            try authService.signOut()
+        } catch {
+            print("[Settings] Account deletion failed: \(error.localizedDescription)")
+        }
         isDeleting = false
     }
 }

@@ -1,6 +1,4 @@
 import Foundation
-// RevenueCat is imported but all calls are guarded behind isRevenueCatConfigured
-import RevenueCat
 
 /// Manages subscriptions via backend sync. StoreKit 2 will become primary once IAP wires up.
 @MainActor
@@ -15,21 +13,11 @@ class SubscriptionService: NSObject, ObservableObject {
     @Published var usage: UsageData?
     @Published var periodEnd: Date?
     @Published var trialEndsAt: Date?
-    @Published var offerings: Offerings?
     @Published var isPurchasing = false
     /// Latest free-window descriptor synced from the backend. When the user
     /// is on the free tier and `isWithinWindow == false`, all gated features
     /// (chat, search, action creation) should be paywalled.
     @Published var freeWindow: FreeWindowStatus?
-
-    // MARK: - RevenueCat Configuration Guard
-
-    /// Whether RevenueCat SDK is configured and ready to use.
-    /// Set to `true` when Apple IAP is ready. While `false`, all RevenueCat
-    /// calls are skipped and backend sync is the sole source of truth.
-    private var isRevenueCatConfigured: Bool {
-        return false // Set to true when Apple IAP is ready
-    }
 
     // MARK: - Computed
 
@@ -75,79 +63,21 @@ class SubscriptionService: NSObject, ObservableObject {
 
     // MARK: - Configuration
 
-    /// Call from AppDelegate.didFinishLaunching
     func configure() {
-        guard isRevenueCatConfigured else {
-            print("[SubscriptionService] RevenueCat disabled — using backend sync until StoreKit 2 wires up")
-            return
-        }
-        Purchases.logLevel = .warn
-        Purchases.configure(withAPIKey: "appl_YOUR_REVENUECAT_API_KEY")
-        Purchases.shared.delegate = self
+        print("[SubscriptionService] Using StoreKit 2 via PurchaseService")
     }
 
     // MARK: - User Linking
 
-    /// Link RevenueCat user to Firebase UID after auth
     func loginUser(firebaseUID: String) async {
-        guard isRevenueCatConfigured else { return }
-        do {
-            let (customerInfo, _) = try await Purchases.shared.logIn(firebaseUID)
-            updateFromCustomerInfo(customerInfo)
-        } catch {
-            print("[SubscriptionService] Login error: \(error)")
-        }
+        // Backend sync handles tier — no SDK login needed
     }
 
-    /// Unlink on sign out
     func logoutUser() async {
-        guard isRevenueCatConfigured else {
-            tier = .free
-            status = .expired
-            limits = nil
-            usage = nil
-            return
-        }
-        do {
-            _ = try await Purchases.shared.logOut()
-            tier = .free
-            status = .expired
-            limits = nil
-            usage = nil
-        } catch {
-            print("[SubscriptionService] Logout error: \(error)")
-        }
-    }
-
-    // MARK: - Offerings
-
-    func loadOfferings() async {
-        guard isRevenueCatConfigured else { return }
-        do {
-            offerings = try await Purchases.shared.offerings()
-        } catch {
-            print("[SubscriptionService] Failed to load offerings: \(error)")
-        }
-    }
-
-    // MARK: - Purchase
-
-    func purchase(package: Package) async throws {
-        guard isRevenueCatConfigured else { return }
-        isPurchasing = true
-        defer { isPurchasing = false }
-
-        let result = try await Purchases.shared.purchase(package: package)
-
-        if !result.userCancelled {
-            updateFromCustomerInfo(result.customerInfo)
-        }
-    }
-
-    func restorePurchases() async throws {
-        guard isRevenueCatConfigured else { return }
-        let customerInfo = try await Purchases.shared.restorePurchases()
-        updateFromCustomerInfo(customerInfo)
+        tier = .free
+        status = .expired
+        limits = nil
+        usage = nil
     }
 
     // MARK: - Local Tier Override (from StoreKit)
@@ -357,25 +287,4 @@ class SubscriptionService: NSObject, ObservableObject {
         return .denied(used: used, limit: limit)
     }
 
-    private func updateFromCustomerInfo(_ customerInfo: CustomerInfo) {
-        if customerInfo.entitlements["max"]?.isActive == true {
-            tier = .max
-        } else if customerInfo.entitlements["pro"]?.isActive == true {
-            tier = .pro
-        } else {
-            tier = .free
-        }
-    }
-}
-
-// MARK: - PurchasesDelegate
-
-extension SubscriptionService: PurchasesDelegate {
-    nonisolated func purchases(_ purchases: Purchases, receivedUpdated customerInfo: CustomerInfo) {
-        Task { @MainActor in
-            updateFromCustomerInfo(customerInfo)
-            // Re-sync from backend to get latest usage
-            await syncUsageFromBackend()
-        }
-    }
 }

@@ -48,13 +48,13 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Lisnai uses your location to remind you to start recording when you leave home.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Lisnai records audio throughout your day to create a searchable memory of your life. Your recordings stay private on your device.</string>
+	<string>Lisn AI records audio to transcribe and analyze your conversations. Recordings are sent to our secure servers for AI-powered transcription and insights.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Lisnai creates reminders from your conversations so you don't forget important tasks.</string>
 	<key>NSRemindersUsageDescription</key>
 	<string>Lisnai creates reminders from your conversations so you don't forget important tasks.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Lisnai transcribes your recordings on-device to make them searchable. Your data never leaves your device.</string>
+	<string>Lisn AI uses on-device speech recognition for real-time transcription during recording. Full transcripts are also processed on our servers for deeper analysis.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIAppFonts</key>
@@ -68,7 +68,6 @@
 	<array>
 		<string>audio</string>
 		<string>fetch</string>
-		<string>location</string>
 		<string>processing</string>
 		<string>remote-notification</string>
 	</array>

@@ -50,7 +50,6 @@ class AuthService: NSObject, ObservableObject {
                         email: user.email,
                         name: user.displayName
                     )
-                    // Link RevenueCat to Firebase UID
                     await SubscriptionService.shared.loginUser(firebaseUID: user.uid)
                     await SubscriptionService.shared.syncUsageFromBackend()
                     // Submit cached onboarding survey (if exists)

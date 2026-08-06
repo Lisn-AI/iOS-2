@@ -14,7 +14,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         FirebaseApp.configure()
 
-        // Configure RevenueCat for subscriptions (legacy guard — still off)
         SubscriptionService.shared.configure()
 
         // Configure StoreKit 2 — registers Transaction.updates listener so
