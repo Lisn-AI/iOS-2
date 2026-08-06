@@ -244,6 +244,12 @@ class APIService: ObservableObject {
         )
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
 
+        // Chat can legitimately run long while retrieval and tools execute.
+        // URLSession's 60s default throws -1001 mid-stream, which removes the
+        // placeholder and silently deletes the user's message — the worst
+        // possible failure. Matches the 180s used by the chunk endpoints.
+        request.timeoutInterval = 180
+
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -763,6 +769,12 @@ class APIService: ObservableObject {
             body: try encoder.encode(body)
         )
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+        // Chat can legitimately run long while retrieval and tools execute.
+        // URLSession's 60s default throws -1001 mid-stream, which removes the
+        // placeholder and silently deletes the user's message — the worst
+        // possible failure. Matches the 180s used by the chunk endpoints.
+        request.timeoutInterval = 180
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
